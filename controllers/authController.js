@@ -281,10 +281,20 @@ const login = async (req, res) => {
         console.error('Error updating lastSeen in background:', err);
       });
 
-    } else {
-      console.log(`❌ Login failed for: ${username}`);
-      res.status(401).json({ message: 'Invalid credentials' });
-    }
+     } else {
+      console.log(`❌ Login failed for: ${username}`);
+      
+      // Check if user exists to provide more specific error
+      const userExists = await User.findOne({
+        $or: [{ username }, { email: username }]
+      });
+      
+      if (!userExists) {
+        res.status(401).json({ message: 'No account found with this username or email' });
+      } else {
+        res.status(401).json({ message: 'Incorrect password. Please try again' });
+      }
+    }
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({ message: 'Server error during login' });

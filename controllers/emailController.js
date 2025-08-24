@@ -403,8 +403,13 @@ exports.resetPassword = async (req, res) => {
       });
     }
     
+    // Hash the new password before saving
+    const bcrypt = require('bcryptjs');
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
+    
     // Update password
-    user.password = newPassword; // Will be hashed by pre-save middleware
+    user.password = hashedPassword;
     user.resetPasswordToken = '';
     user.resetPasswordTokenExpiration = null;
     await user.save();

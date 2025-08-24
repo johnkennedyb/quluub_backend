@@ -1,4 +1,5 @@
 const nodemailer = require('nodemailer');
+const { sendEmailViaAPI } = require('./mailerooService');
 
 // Import email templates
 const welcomeEmail = require('./emailTemplates/welcome');
@@ -21,19 +22,19 @@ const validateEmailTemplate = require('./emailTemplates/validateEmail');
 const videoCallNotificationEmail = require('./emailTemplates/videoCallNotification');
 const testEmailTemplate = require('./emailTemplates/testEmail');
 
-// Default configuration - can be updated dynamically
-console.log('Loading email configuration...');
-console.log('SMTP Host:', process.env.SMTP_HOST || 'mail.quluub.com');
-console.log('SMTP Port:', process.env.SMTP_PORT || 465);
-console.log('Mail User:', process.env.MAIL_USER ? '***' : 'Not set');
+// Maileroo SMTP configuration
+console.log('Loading Maileroo email configuration...');
+console.log('SMTP Host: smtp.maileroo.com');
+console.log('SMTP Port: 465');
+console.log('Mail User: mail@quluub.com');
 
 let emailConfig = {
-  host: process.env.SMTP_HOST || 'mail.quluub.com',
-  port: parseInt(process.env.SMTP_PORT) || 465,
+  host: 'smtp.maileroo.com',
+  port: 465,
   secure: true,
   auth: {
-    user: process.env.MAIL_USER || 'admin@quluub.com',
-    pass: process.env.MAIL_PASSWORD || 'Q!mok@JX1?1GProd'
+    user: 'mail@quluub.com',
+    pass: 'a870017e53102ebeaee7a381'
   },
   tls: {
     rejectUnauthorized: false
@@ -89,13 +90,24 @@ const verifyTransporter = () => {
 console.log('\n--- Initializing email service ---');
 verifyTransporter();
 
-// Generic email sending function
+// Generic email sending function with Maileroo API fallback
 const sendEmail = async (to, templateFunction, ...args) => {
   console.log(`\n--- Attempting to send email to: ${to} ---`);
   
   try {
     const { subject, html } = templateFunction(...args);
     console.log('Subject:', subject);
+    
+    // Try Maileroo API first
+    console.log('Attempting to send via Maileroo API...');
+    const apiSuccess = await sendEmailViaAPI(to, subject, html, emailSettings.fromEmail);
+    
+    if (apiSuccess) {
+      console.log('✅ Email sent successfully via Maileroo API');
+      return true;
+    }
+    
+    console.log('Maileroo API failed, falling back to SMTP...');
     
     const mailOptions = {
       from: `"${emailSettings.fromName}" <${emailSettings.fromEmail}>`,

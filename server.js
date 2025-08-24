@@ -24,7 +24,8 @@ const User = require('./models/User');
 const { trackRequestPerformance, performanceEndpoint, healthCheckEndpoint } = require('./middlewares/performanceMonitor');
 const { createIndexes } = require('./config/indexes');
 
-dotenv.config();
+// Load environment variables from the env file
+dotenv.config({ path: './env (1)' });
 
 connectDB();
 

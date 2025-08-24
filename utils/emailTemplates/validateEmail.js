@@ -27,10 +27,7 @@ const validateEmail = (recipientName, validationLink, verificationCode) => {
                   </tr>
                 </table>
 
-                <p style="text-align: center; margin-bottom: 15px;">Or click the button below to verify your email:</p>
-                <p style="text-align: center;">
-                  <a href="${validationLink}" style="background: linear-gradient(135deg, #14b8a6, #0f766e); color: white; padding: 15px 30px; text-decoration: none; border-radius: 25px; font-weight: 600; display: inline-block;">✅ Verify My Email</a>
-                </p>
+                <p style="text-align: center; margin-bottom: 15px; color: #666; font-size: 14px;">Enter this code in the verification dialog to complete your registration.</p>
 
                 <table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin: 25px 0;">
                   <tr>

@@ -20,7 +20,7 @@ const resetPasswordEmail = (recipientName, resetLink) => {
                   <a href="${resetLink}" style="background-color: #075e54; color: white; padding: 15px 25px; text-decoration: none; border-radius: 5px; font-size: 16px;">Reset Your Password</a>
                 </p>
                 <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">
-                  For security reasons, this link will expire in 24 hours. If you need further assistance, please contact our support team.
+                  For security reasons, this link will expire in 1 hour. If you need further assistance, please contact our support team.
                 </p>
               </td>
             </tr>

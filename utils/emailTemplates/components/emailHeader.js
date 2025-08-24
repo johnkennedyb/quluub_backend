@@ -1,6 +1,6 @@
 /**
  * Email Header Component
- * A simple, clean header for Quluub emails.
+ * Header with background image for Quluub emails.
  */
 
 const createEmailHeader = (subject = 'Quluub Notification') => {
@@ -10,11 +10,20 @@ const createEmailHeader = (subject = 'Quluub Notification') => {
         align="center"
         valign="top"
         class="header"
-        style="padding: 40px 10px; background: linear-gradient(135deg, #008080 0%, #f8ae95 100%); background-size: cover; "
+        style="
+          padding: 0; 
+          background: #008080;
+        "
       >
-        <h1
-          style="margin: 0; font-size: 24px; font-weight: bold; color: #ffffff; font-family: Arial, sans-serif;"
-        >${subject}</h1>
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-image: url('https://res.cloudinary.com/djx3ijal6/image/upload/v1756053196/Quluub_Email_Header_1_ypa6xl.png'); background-size: cover; background-position: center; background-repeat: no-repeat; min-height: 150px;">
+          <tr>
+            <td align="center" valign="middle" style="padding: 40px 10px;">
+              <h1 style="margin: 0; font-size: 24px; font-weight: bold; color: #ffffff; font-family: Arial, sans-serif; text-shadow: 2px 2px 4px rgba(0,0,0,0.5);">
+                ${subject}
+              </h1>
+            </td>
+          </tr>
+        </table>
       </td>
     </tr>
   `;
