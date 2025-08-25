@@ -2,23 +2,10 @@ const { v4: uuidv4 } = require("uuid");
 const Chat = require('../models/Chat');
 const User = require('../models/User');
 const Relationship = require('../models/Relationship');
-const WaliChat = require('../models/WaliChat');
-const Message = require('../models/Message');
+const { plans } = require('../config/plans');
+const { sendChatReportToParents, sendMessageToWali } = require('./waliController');
 const Conversation = require('../models/Conversation');
 const { sendWaliViewChatEmail, sendWaliViewChatEmailWithAttachments, sendContactWaliEmail } = require('../utils/emailService');
-
-// Helper functions - 10 messages per match permanently (not per month)
-const plans = {
-  freemium: {
-    messageAllowance: 10, // 10 messages per match permanently
-    wordCountPerMessage: 50
-  },
-  premium: {
-    messageAllowance: 10, // 10 messages per match permanently
-    wordCountPerMessage: 100,
-    videoCall: true
-  }
-};
 
 const findUser = async (userId) => {
   return await User.findById(userId);
@@ -104,113 +91,6 @@ const sendVideoCallReportToWali = async (callerId, recipientId, callData, record
   }
 };
 
-// Helper function to send chat report to parents
-const sendChatReportToParents = async (userId1, userId2) => {
-  try {
-    const [user1, user2] = await Promise.all([
-      User.findById(userId1),
-      User.findById(userId2)
-    ]);
-
-    if (!user1 || !user2) return;
-
-    console.log(`📄 Generating chat transcript files for ${user1.fname} and ${user2.fname}`);
-    
-    // Generate chat transcript files
-    const { generateChatTranscriptPDF, generateChatTranscriptTXT } = require('../utils/chatTranscriptGenerator');
-    
-    let pdfPath, txtPath;
-    let attachments = [];
-    
-    try {
-      // Generate both PDF and TXT transcripts
-      [pdfPath, txtPath] = await Promise.all([
-        generateChatTranscriptPDF(userId1, userId2, 50),
-        generateChatTranscriptTXT(userId1, userId2, 50)
-      ]);
-      
-      // Prepare attachments
-      attachments = [
-        {
-          filename: `chat-transcript-${user1.username}-${user2.username}.pdf`,
-          path: pdfPath,
-          contentType: 'application/pdf'
-        },
-        {
-          filename: `chat-transcript-${user1.username}-${user2.username}.txt`,
-          path: txtPath,
-          contentType: 'text/plain'
-        }
-      ];
-      
-      console.log(`✅ Chat transcript files generated successfully`);
-    } catch (transcriptError) {
-      console.error('❌ Error generating chat transcripts:', transcriptError);
-      // Continue without attachments if transcript generation fails
-    }
-
-    // This link should ideally lead to a page where the guardian can view the chat
-    const chatLink = `${process.env.FRONTEND_URL}/wali/chat-view?user1=${userId1}&user2=${userId2}`;
-
-    // Send to user1's parent if they have parentEmail
-    if (user1.parentEmail && user1.parentEmail !== user1.email) {
-      if (attachments.length > 0) {
-        await sendWaliViewChatEmailWithAttachments(user1.parentEmail, "Guardian", user1.fname, user2.fname, chatLink, attachments);
-      } else {
-        await sendWaliViewChatEmail(user1.parentEmail, "Guardian", user1.fname, user2.fname, chatLink);
-      }
-    }
-
-    // Send to user2's parent if they have parentEmail
-    if (user2.parentEmail && user2.parentEmail !== user2.email) {
-      if (attachments.length > 0) {
-        await sendWaliViewChatEmailWithAttachments(user2.parentEmail, "Guardian", user2.fname, user1.fname, chatLink, attachments);
-      } else {
-        await sendWaliViewChatEmail(user2.parentEmail, "Guardian", user2.fname, user1.fname, chatLink);
-      }
-    }
-
-    // Send to wali if user is female and has wali details
-    if (user1.gender === 'female' && user1.waliDetails) {
-      try {
-        const waliDetails = JSON.parse(user1.waliDetails);
-        if (waliDetails.email) {
-          if (attachments.length > 0) {
-            await sendWaliViewChatEmailWithAttachments(waliDetails.email, waliDetails.name || 'Wali', user1.fname, user2.fname, chatLink, attachments);
-          } else {
-            await sendWaliViewChatEmail(waliDetails.email, waliDetails.name || 'Wali', user1.fname, user2.fname, chatLink);
-          }
-        }
-      } catch (e) {
-        console.error('Error parsing wali details for user1:', e);
-      }
-    }
-
-    if (user2.gender === 'female' && user2.waliDetails) {
-      try {
-        const waliDetails = JSON.parse(user2.waliDetails);
-        if (waliDetails.email) {
-          if (attachments.length > 0) {
-            await sendWaliViewChatEmailWithAttachments(waliDetails.email, waliDetails.name || 'Wali', user2.fname, user1.fname, chatLink, attachments);
-          } else {
-            await sendWaliViewChatEmail(waliDetails.email, waliDetails.name || 'Wali', user2.fname, user1.fname, chatLink);
-          }
-        }
-      } catch (e) {
-        console.error('Error parsing wali details for user2:', e);
-      }
-    }
-
-    console.log(`📧 Chat report with ${attachments.length} attachments sent to parents/wali for match between ${user1.fname} and ${user2.fname}`);
-    
-    // Clean up transcript files after sending (optional - keep for debugging)
-    // if (pdfPath) fs.unlinkSync(pdfPath);
-    // if (txtPath) fs.unlinkSync(txtPath);
-    
-  } catch (error) {
-    console.error('Error sending chat report to parents:', error);
-  }
-};
 
 // GET CHAT BETWEEN TWO USERS
 const getChat = async (req, res) => {
@@ -612,6 +492,71 @@ const addChat = async (req, res) => {
       console.log('✅ Message broadcasted successfully');
     } else {
       console.warn('⚠️ Socket.io not available for broadcasting');
+    }
+
+    // Send automatic Wali notification for each message
+    try {
+      // Check if sender is female and has Wali details
+      if (currentUser.gender === 'female' && currentUser.waliDetails) {
+        let waliDetails;
+        try {
+          waliDetails = typeof currentUser.waliDetails === 'string' 
+            ? JSON.parse(currentUser.waliDetails) 
+            : currentUser.waliDetails;
+        } catch (e) {
+          console.error('Error parsing wali details for notification:', e);
+        }
+
+        if (waliDetails && waliDetails.email) {
+          console.log('📧 Sending automatic Wali notification for message');
+          // Send notification to Wali without blocking the response
+          setImmediate(async () => {
+            try {
+              await sendMessageToWali({
+                user: { _id: userInfo._id },
+                body: { recipientId: contact._id, message: message }
+              }, {
+                json: () => {},
+                status: () => ({ json: () => {} })
+              });
+            } catch (error) {
+              console.error('Error sending Wali notification:', error);
+            }
+          });
+        }
+      }
+
+      // Also check if recipient is female and notify their Wali
+      if (contact.gender === 'female' && contact.waliDetails) {
+        let waliDetails;
+        try {
+          waliDetails = typeof contact.waliDetails === 'string' 
+            ? JSON.parse(contact.waliDetails) 
+            : contact.waliDetails;
+        } catch (e) {
+          console.error('Error parsing recipient wali details for notification:', e);
+        }
+
+        if (waliDetails && waliDetails.email) {
+          console.log('📧 Sending automatic Wali notification for recipient');
+          // Send notification to recipient's Wali without blocking the response
+          setImmediate(async () => {
+            try {
+              await sendMessageToWali({
+                user: { _id: contact._id },
+                body: { recipientId: userInfo._id, message: message }
+              }, {
+                json: () => {},
+                status: () => ({ json: () => {} })
+              });
+            } catch (error) {
+              console.error('Error sending recipient Wali notification:', error);
+            }
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error in Wali notification process:', error);
     }
 
     // Send chat report to parents after every 5th message in the conversation
