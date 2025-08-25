@@ -141,3 +141,24 @@ exports.markAsRead = asyncHandler(async (req, res) => {
     throw new Error('Notification not found');
   }
 });
+
+// @desc    Delete a notification
+// @route   DELETE /api/notifications/:id
+// @access  Private
+exports.deleteNotification = asyncHandler(async (req, res) => {
+  const notification = await Notification.findById(req.params.id);
+
+  if (!notification) {
+    res.status(404);
+    throw new Error('Notification not found');
+  }
+
+  // Ensure the notification belongs to the authenticated user
+  if (notification.user.toString() !== req.user._id.toString()) {
+    res.status(403);
+    throw new Error('Not authorized to delete this notification');
+  }
+
+  await notification.deleteOne();
+  res.status(200).json({ message: 'Notification deleted' });
+});

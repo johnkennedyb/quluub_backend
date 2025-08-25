@@ -4,6 +4,7 @@ const {
   markAsRead,
   sendGlobalNotification,
   sendCallNotification,
+  deleteNotification,
 } = require('../controllers/notificationController');
 const { protect, isAdmin: admin } = require('../middlewares/auth');
 
@@ -13,6 +14,7 @@ router.use(protect);
 
 router.get('/', getNotifications);
 router.put('/:id/read', markAsRead);
+router.delete('/:id', deleteNotification);
 router.post('/send-call-notification', sendCallNotification);
 
 // @desc    Send a global notification

@@ -18,6 +18,7 @@ const userRoutes = require('./routes/userRoutes');
 const waliRoutes = require('./routes/waliRoutes');
 const feedRoutes = require('./routes/feedRoutes');
 const monthlyUsageRoutes = require('./routes/monthlyUsageRoutes');
+const dashboardRoutes = require('./routes/dashboard');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const User = require('./models/User');
@@ -444,6 +445,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/wali', waliRoutes);
 app.use('/api/feed', feedRoutes);
 app.use('/api/monthly-usage', monthlyUsageRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

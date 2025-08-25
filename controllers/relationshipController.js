@@ -20,6 +20,29 @@ exports.sendRequest = async (req, res) => {
       return res.status(400).json({ message: "You cannot follow yourself" });
     }
     
+    // Check if current user is female and has wali details
+    const currentUser = await User.findById(followerUserId);
+    if (currentUser.gender === 'female') {
+      let waliDetails = {};
+      
+      try {
+        if (typeof currentUser.waliDetails === 'string') {
+          waliDetails = JSON.parse(currentUser.waliDetails);
+        } else if (typeof currentUser.waliDetails === 'object' && currentUser.waliDetails !== null) {
+          waliDetails = currentUser.waliDetails;
+        }
+      } catch (error) {
+        console.error('Error parsing wali details:', error);
+        waliDetails = {};
+      }
+      
+      if (!waliDetails.name || !waliDetails.email) {
+        return res.status(400).json({ 
+          message: "Please complete your Wali name and email in your profile settings before sending requests." 
+        });
+      }
+    }
+    
     // Check if followed user exists
     const followedUser = await User.findById(followedUserId);
     if (!followedUser) {
