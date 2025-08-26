@@ -11,12 +11,11 @@ const emailFooterWithIcons = `
         class="footer"
         style="padding: 0; background: #f5f5f5;"
       >
-        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-image: url('https://res.cloudinary.com/djx3ijal6/image/upload/v1756053196/Quluub_Email_Header_2_n3bpmr.png'); background-size: cover; background-position: center; background-repeat: no-repeat; min-height: 200px;">
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-image: url('https://res.cloudinary.com/djx3ijal6/image/upload/v1756137463/Copy_of_Quluub_Email_Header_1_cocsqj.png'); background-size: cover; background-position: center; background-repeat: no-repeat; min-height: 200px;">
           <tr>
             <td align="center" valign="middle" style="padding: 30px 10px;">
               <p style="margin: 0 0 20px 0; font-size: 12px; line-height: 18px; color: #333333; font-family: Arial, sans-serif;">
-                &copy; 2024 Quluub. All rights reserved.<br />
-                123 Quluub Street, Matrimony City, MC 45678
+                &copy; 2024 Quluub. All rights reserved.
               </p>
               <table
                 border="0"

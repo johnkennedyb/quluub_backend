@@ -77,24 +77,30 @@ const sampleEmailWithNewDesign = (recipientName, subject = 'Welcome to Quluub!',
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <title>${subject}</title>
     </head>
-    <body style="
-      margin: 0;
-      padding: 0;
-      background-color: #f9fafb;
-      font-family: 'Arial', sans-serif;
-    ">
-      <div style="
-        max-width: 600px;
-        margin: 0 auto;
-        background: white;
-        box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-        border-radius: 10px;
-        overflow: hidden;
-      ">
-        ${createEmailHeader(subject)}
-        ${content || defaultContent}
-        ${createEmailFooter()}
-      </div>
+    <body style="margin: 0; padding: 0; background-color: #f9fafb; font-family: 'Arial', sans-serif;">
+      <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #f9fafb;">
+        <tr>
+          <td align="center" valign="top">
+            <table width="100%" border="0" cellspacing="0" cellpadding="0">
+              ${createEmailHeader(subject)}
+            </table>
+            <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width: 600px; margin: 0 auto;">
+              <tr>
+                <td align="center" valign="top" style="background: white; box-shadow: 0 10px 30px rgba(0,0,0,0.1); border-radius: 10px; overflow: hidden;">
+                  ${content || defaultContent}
+                </td>
+              </tr>
+            </table>
+            <table width="100%" border="0" cellspacing="0" cellpadding="0">
+              <tr>
+                <td align="center" valign="top">
+                  ${createEmailFooter()}
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+      </table>
     </body>
     </html>
   `;

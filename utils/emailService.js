@@ -2,24 +2,24 @@ const nodemailer = require('nodemailer');
 const { sendEmailViaAPI } = require('./mailerooService');
 
 // Import email templates
-const welcomeEmail = require('./emailTemplates/welcome');
-const resetPasswordEmail = require('./emailTemplates/resetPassword');
-const waliNewJoinerEmail = require('./emailTemplates/waliNewJoiner');
-const connectionRequestEmail = require('./emailTemplates/connectionRequest');
-const connectionRejectedEmail = require('./emailTemplates/connectionRejected');
-const requestWithdrawnEmail = require('./emailTemplates/requestWithdrawn');
-const profileViewEmail = require('./emailTemplates/profileView');
-const pendingRequestsEmail = require('./emailTemplates/pendingRequests');
-const purchasePlanEmail = require('./emailTemplates/purchasePlan');
-const planPurchasedEmail = require('./emailTemplates/planPurchased');
-const planExpiringEmail = require('./emailTemplates/planExpiring');
-const planExpiredEmail = require('./emailTemplates/planExpired');
-const encourageUnhideEmail = require('./emailTemplates/encourageUnhide');
-const suggestedAccountsEmail = require('./emailTemplates/suggestedAccounts');
-const contactWaliEmail = require('./emailTemplates/contactWali');
-const waliViewChatEmail = require('./emailTemplates/waliViewChat');
+const welcomeEmailTemplate = require('./emailTemplates/welcome');
+const resetPasswordEmailTemplate = require('./emailTemplates/resetPassword');
+const waliNewJoinerEmailTemplate = require('./emailTemplates/waliNewJoiner');
+const connectionRequestEmailTemplate = require('./emailTemplates/connectionRequest');
+const connectionRejectedEmailTemplate = require('./emailTemplates/connectionRejected');
+const requestWithdrawnEmailTemplate = require('./emailTemplates/requestWithdrawn');
+const profileViewEmailTemplate = require('./emailTemplates/profileView');
+const pendingRequestsEmailTemplate = require('./emailTemplates/pendingRequests');
+const purchasePlanEmailTemplate = require('./emailTemplates/purchasePlan');
+const planPurchasedEmailTemplate = require('./emailTemplates/planPurchased');
+const planExpiringEmailTemplate = require('./emailTemplates/planExpiring');
+const planExpiredEmailTemplate = require('./emailTemplates/planExpired');
+const encourageUnhideEmailTemplate = require('./emailTemplates/encourageUnhide');
+const suggestedAccountsEmailTemplate = require('./emailTemplates/suggestedAccounts');
+const contactWaliEmailTemplate = require('./emailTemplates/contactWali');
+const waliViewChatEmailTemplate = require('./emailTemplates/waliViewChat');
 const validateEmailTemplate = require('./emailTemplates/validateEmail');
-const videoCallNotificationEmail = require('./emailTemplates/videoCallNotification');
+const videoCallNotificationEmailTemplate = require('./emailTemplates/videoCallNotification');
 const testEmailTemplate = require('./emailTemplates/testEmail');
 
 // Maileroo SMTP configuration
@@ -91,11 +91,33 @@ console.log('\n--- Initializing email service ---');
 verifyTransporter();
 
 // Generic email sending function with Maileroo API fallback
-const sendEmail = async (to, templateFunction, ...args) => {
+const sendEmail = async (emailOptions) => {
+  // Handle both old format (to, templateFunction, ...args) and new format ({ to, subject, html })
+  let to, subject, html;
+  
+  if (typeof emailOptions === 'string') {
+    // Old format: sendEmail(to, templateFunction, ...args)
+    to = arguments[0];
+    const templateFunction = arguments[1];
+    const args = Array.prototype.slice.call(arguments, 2);
+    if (typeof templateFunction !== 'function') {
+      throw new Error('The provided template is not a function.');
+    }
+    const result = templateFunction(...args);
+    subject = result.subject;
+    html = result.html;
+  } else if (emailOptions && typeof emailOptions === 'object') {
+    // New format: sendEmail({ to, subject, html })
+    to = emailOptions.to;
+    subject = emailOptions.subject;
+    html = emailOptions.html;
+  } else {
+    throw new Error('Invalid email options provided');
+  }
+  
   console.log(`\n--- Attempting to send email to: ${to} ---`);
   
   try {
-    const { subject, html } = templateFunction(...args);
     console.log('Subject:', subject);
     
     // Try Maileroo API first
@@ -232,35 +254,34 @@ const updateEmailConfig = async (newConfig) => {
 };
 
 // Specific email functions
-const sendWelcomeEmail = (email, recipientName) => sendEmail(email, welcomeEmail, recipientName);
-const sendResetPasswordEmail = (email, recipientName, resetLink) => sendEmail(email, resetPasswordEmail, recipientName, resetLink);
-const sendWaliNewJoinerEmail = (email, waliName, sisterName) => sendEmail(email, waliNewJoinerEmail, waliName, sisterName);
-const sendConnectionRequestEmail = (email, recipientName, requesterUsername) => sendEmail(email, connectionRequestEmail, recipientName, requesterUsername);
-const sendConnectionRejectedEmail = (email, recipientName) => sendEmail(email, connectionRejectedEmail, recipientName);
-const sendRequestWithdrawnEmail = (email, recipientName, withdrawerName) => sendEmail(email, requestWithdrawnEmail, recipientName, withdrawerName);
-const sendProfileViewEmail = (email, recipientName, viewCount) => sendEmail(email, profileViewEmail, recipientName, viewCount);
-const sendPendingRequestsEmail = (email, recipientName, requestCount) => sendEmail(email, pendingRequestsEmail, recipientName, requestCount);
-const sendPurchasePlanEmail = (email, recipientName) => sendEmail(email, purchasePlanEmail, recipientName);
-const sendPlanPurchasedEmail = (email, recipientName) => sendEmail(email, planPurchasedEmail, recipientName);
-const sendPlanExpiringEmail = (email, recipientName) => sendEmail(email, planExpiringEmail, recipientName);
-const sendPlanExpiredEmail = (email, recipientName) => sendEmail(email, planExpiredEmail, recipientName);
-const sendEncourageUnhideEmail = (email, recipientName) => sendEmail(email, encourageUnhideEmail, recipientName);
-const sendSuggestedAccountsEmail = (email, recipientName) => sendEmail(email, suggestedAccountsEmail, recipientName);
-const sendContactWaliEmail = (email, brotherName) => sendEmail(email, contactWaliEmail, brotherName);
-const sendWaliViewChatEmail = (email, waliName, wardName, brotherName, chatLink) => sendEmail(email, waliViewChatEmail, waliName, wardName, brotherName, chatLink);
+const sendWelcomeEmail = (email, recipientName) => sendEmail({ ...welcomeEmailTemplate(recipientName), to: email });
+const sendResetPasswordEmail = (email, recipientName, resetLink) => sendEmail({ ...resetPasswordEmailTemplate(recipientName, resetLink), to: email });
+const sendWaliNewJoinerEmail = (email, waliName, sisterName) => sendEmail({ ...waliNewJoinerEmailTemplate(waliName, sisterName), to: email });
+const sendConnectionRequestEmail = (email, recipientName, requesterUsername) => sendEmail({ ...connectionRequestEmailTemplate(recipientName, requesterUsername), to: email });
+const sendConnectionRejectedEmail = (email, recipientName) => sendEmail({ ...connectionRejectedEmailTemplate(recipientName), to: email });
+const sendRequestWithdrawnEmail = (email, recipientName, withdrawerName) => sendEmail({ ...requestWithdrawnEmailTemplate(recipientName, withdrawerName), to: email });
+const sendProfileViewEmail = (email, recipientName, viewCount) => sendEmail({ ...profileViewEmailTemplate(recipientName, viewCount), to: email });
+const sendPendingRequestsEmail = (email, recipientName, requestCount) => sendEmail({ ...pendingRequestsEmailTemplate(recipientName, requestCount), to: email });
+const sendPurchasePlanEmail = (email, recipientName) => sendEmail({ ...purchasePlanEmailTemplate(recipientName), to: email });
+const sendPlanPurchasedEmail = (email, recipientName) => sendEmail({ ...planPurchasedEmailTemplate(recipientName), to: email });
+const sendPlanExpiringEmail = (email, recipientName) => sendEmail({ ...planExpiringEmailTemplate(recipientName), to: email });
+const sendPlanExpiredEmail = (email, recipientName) => sendEmail({ ...planExpiredEmailTemplate(recipientName), to: email });
+const sendEncourageUnhideEmail = (email, recipientName) => sendEmail({ ...encourageUnhideEmailTemplate(recipientName), to: email });
+const sendSuggestedAccountsEmail = (email, recipientName) => sendEmail({ ...suggestedAccountsEmailTemplate(recipientName), to: email });
+const sendContactWaliEmail = (email, brotherName) => sendEmail({ ...contactWaliEmailTemplate(brotherName), to: email });
+const sendWaliViewChatEmail = (email, waliName, wardName, brotherName, chatLink) => sendEmail({ ...waliViewChatEmailTemplate(waliName, wardName, brotherName, chatLink), to: email });
 
 // Enhanced Wali email functions with file attachments
 const sendWaliViewChatEmailWithAttachments = (email, waliName, wardName, brotherName, chatLink, attachments = []) => 
-  sendEmailWithAttachments(email, waliViewChatEmail, attachments, waliName, wardName, brotherName, chatLink);
-const sendVideoCallNotificationEmail = (parentEmail, waliName, wardName, brotherName, callDetails, reportLink) => sendEmail(parentEmail, videoCallNotificationEmail, waliName, wardName, brotherName, callDetails, reportLink);
-
+  sendEmailWithAttachments(email, waliViewChatEmailTemplate, attachments, waliName, wardName, brotherName, chatLink);
+const sendVideoCallNotificationEmail = (parentEmail, waliName, wardName, brotherName, callDetails, reportLink) => sendEmail({ ...videoCallNotificationEmailTemplate(waliName, wardName, brotherName, callDetails, reportLink), to: parentEmail });
 const sendVideoCallNotificationEmailWithAttachments = (parentEmail, waliName, wardName, brotherName, callDetails, reportLink, attachments = []) => 
-  sendEmailWithAttachments(parentEmail, videoCallNotificationEmail, attachments, waliName, wardName, brotherName, callDetails, reportLink);
+  sendEmailWithAttachments(parentEmail, videoCallNotificationEmailTemplate, attachments, waliName, wardName, brotherName, callDetails, reportLink);
 
 const sendValidationEmail = (email, recipientName, validationToken) => {
   const validationUrl = `${process.env.FRONTEND_URL}/validate-email?token=${validationToken}`;
   // Pass both the validation URL and the token (which is the verification code)
-  return sendEmail(email, validateEmailTemplate, recipientName, validationUrl, validationToken);
+  return sendEmail({ ...validateEmailTemplate(recipientName, validationUrl, validationToken), to: email });
 };
 
 // New function to send bulk emails
@@ -354,6 +375,7 @@ const getEmailMetricsService = async () => {
 };
 
 module.exports = {
+  sendEmail,
   updateEmailConfig,
   sendValidationEmail,
   sendWelcomeEmail,
