@@ -1,14 +1,53 @@
 const { v4: uuidv4 } = require("uuid");
+const jwt = require('jsonwebtoken');
 const Chat = require('../models/Chat');
 const User = require('../models/User');
 const Relationship = require('../models/Relationship');
 const { plans } = require('../config/plans');
-const { sendChatReportToParents, sendMessageToWali } = require('./waliController');
+const { sendChatReportToParents } = require('./waliController');
 const Conversation = require('../models/Conversation');
 const { sendWaliViewChatEmail, sendWaliViewChatEmailWithAttachments, sendContactWaliEmail } = require('../utils/emailService');
 
 const findUser = async (userId) => {
   return await User.findById(userId);
+};
+
+// Helper: Send initial Wali notification email when a conversation starts
+// Sends to the female participant's wali with a secure chat link
+const sendInitialWaliEmail = async (femaleUser, otherUser) => {
+  try {
+    if (!femaleUser || femaleUser.gender !== 'female' || !femaleUser.waliDetails) return;
+
+    let waliDetails;
+    try {
+      waliDetails = JSON.parse(femaleUser.waliDetails);
+    } catch (e) {
+      console.error('❌ Malformed waliDetails JSON while sending initial email:', e);
+      return;
+    }
+
+    const waliEmail = waliDetails?.email;
+    if (!waliEmail) return;
+
+    // Build secure chat view link for wali if wali has an account
+    let chatLink = '';
+    const waliUser = await User.findOne({ email: waliEmail }).select('_id');
+    if (waliUser) {
+      const waliToken = jwt.sign({ id: waliUser._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
+      const wardId = femaleUser._id.toString();
+      const participantId = otherUser._id.toString();
+      chatLink = `${process.env.FRONTEND_URL}/wali/conversation/${wardId}/${participantId}?token=${waliToken}`;
+    }
+
+    const wardName = `${femaleUser.fname} ${femaleUser.lname}`;
+    const brotherName = `${otherUser.fname} ${otherUser.lname}`;
+    const waliName = waliDetails.name || 'Respected Wali';
+
+    await sendWaliViewChatEmail(waliEmail, waliName, wardName, brotherName, chatLink);
+    console.log('📧 Initial Wali email sent to', waliEmail, 'for conversation between', wardName, 'and', brotherName);
+  } catch (err) {
+    console.error('❌ Failed to send initial Wali email:', err);
+  }
 };
 
 const capitalizeFirstLetter = (string) => {
@@ -494,71 +533,6 @@ const addChat = async (req, res) => {
       console.warn('⚠️ Socket.io not available for broadcasting');
     }
 
-    // Send automatic Wali notification for each message
-    try {
-      // Check if sender is female and has Wali details
-      if (currentUser.gender === 'female' && currentUser.waliDetails) {
-        let waliDetails;
-        try {
-          waliDetails = typeof currentUser.waliDetails === 'string' 
-            ? JSON.parse(currentUser.waliDetails) 
-            : currentUser.waliDetails;
-        } catch (e) {
-          console.error('Error parsing wali details for notification:', e);
-        }
-
-        if (waliDetails && waliDetails.email) {
-          console.log('📧 Sending automatic Wali notification for message');
-          // Send notification to Wali without blocking the response
-          setImmediate(async () => {
-            try {
-              await sendMessageToWali({
-                user: { _id: userInfo._id },
-                body: { recipientId: contact._id, message: message }
-              }, {
-                json: () => {},
-                status: () => ({ json: () => {} })
-              });
-            } catch (error) {
-              console.error('Error sending Wali notification:', error);
-            }
-          });
-        }
-      }
-
-      // Also check if recipient is female and notify their Wali
-      if (contact.gender === 'female' && contact.waliDetails) {
-        let waliDetails;
-        try {
-          waliDetails = typeof contact.waliDetails === 'string' 
-            ? JSON.parse(contact.waliDetails) 
-            : contact.waliDetails;
-        } catch (e) {
-          console.error('Error parsing recipient wali details for notification:', e);
-        }
-
-        if (waliDetails && waliDetails.email) {
-          console.log('📧 Sending automatic Wali notification for recipient');
-          // Send notification to recipient's Wali without blocking the response
-          setImmediate(async () => {
-            try {
-              await sendMessageToWali({
-                user: { _id: contact._id },
-                body: { recipientId: userInfo._id, message: message }
-              }, {
-                json: () => {},
-                status: () => ({ json: () => {} })
-              });
-            } catch (error) {
-              console.error('Error sending recipient Wali notification:', error);
-            }
-          });
-        }
-      }
-    } catch (error) {
-      console.error('Error in Wali notification process:', error);
-    }
-
     // Send chat report to parents after every 5th message in the conversation
     const totalMessages = await Chat.countDocuments({
       $or: [
@@ -566,6 +540,12 @@ const addChat = async (req, res) => {
         { senderId: contact._id, receiverId: userInfo._id }
       ]
     });
+
+    // Send Wali notification email only once when conversation starts
+    // and only if the first message is sent by the female (ward)
+    if (totalMessages === 1 && currentUser.gender === 'female' && currentUser.waliDetails) {
+      await sendInitialWaliEmail(currentUser, contact);
+    }
 
     if (totalMessages % 5 === 0) {
       // Send chat report every 5 messages
