@@ -40,9 +40,11 @@ const upload = multer({
   }
 });
 
-// Email transporter setup
+// Email transporter setup - Using Maileroo SMTP
 const transporter = nodemailer.createTransport({
-  service: 'gmail',
+  host: process.env.SMTP_HOST || 'smtp.maileroo.com',
+  port: process.env.SMTP_PORT || 465,
+  secure: true, // Use SSL
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS
@@ -96,63 +98,108 @@ const uploadVideoRecording = async (req, res) => {
     }
 
     // Determine who is female to get Wali details
+    console.log('👤 Caller data:', { id: caller._id, gender: caller.gender, waliEmail: caller.waliEmail });
+    console.log('👤 Recipient data:', { id: recipient._id, gender: recipient.gender, waliEmail: recipient.waliEmail });
+    
     const femaleUser = caller.gender === 'female' ? caller : recipient;
     const maleUser = caller.gender === 'male' ? caller : recipient;
+    
+    console.log('👩 Female user:', { id: femaleUser._id, gender: femaleUser.gender, waliEmail: femaleUser.waliEmail });
+    console.log('👨 Male user:', { id: maleUser._id, gender: maleUser.gender });
 
     if (!femaleUser.waliEmail) {
-      console.log('⚠️ No Wali email found, skipping notification.');
+      console.log('⚠️ No Wali email found for female user, skipping notification.');
+      console.log('⚠️ Female user full data:', JSON.stringify(femaleUser, null, 2));
       return res.json({ success: true, message: 'Recording saved (no Wali notification required)' });
     }
 
-    // Convert .webm to .mp4
-    console.log('🔄 Converting video to MP4...');
-    mp4Path = await convertToMp4(webmPath);
+    // Try to convert .webm to .mp4, fallback to original if conversion fails
+    console.log('🔄 Attempting to convert video to MP4...');
+    try {
+      mp4Path = await convertToMp4(webmPath);
+      console.log('✅ Video converted to MP4 successfully');
+    } catch (conversionError) {
+      console.warn('⚠️ FFmpeg conversion failed, using original WebM file:', conversionError.message);
+      mp4Path = webmPath; // Use original WebM file
+    }
 
-    // Prepare email content for Wali
+    // Use the updated email header and footer components
+    const createEmailHeader = require('../utils/emailTemplates/components/emailHeader');
+    const createEmailFooter = require('../utils/emailTemplates/components/emailFooter');
+    
     const emailSubject = `Video Call Recording - ${femaleUser.fname} ${femaleUser.lname}`;
     const emailContent = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9;">
-        <div style="background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
-          <h2 style="color: #2c3e50; text-align: center; margin-bottom: 30px;">
-            🎥 Video Call Recording Attached
-          </h2>
-          <div style="background-color: #e8f5e8; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-            <p style="margin: 0; color: #27ae60; font-weight: bold;">
-              ✅ Islamic Compliance: Video call supervision as requested
-            </p>
-          </div>
-          <h3 style="color: #34495e; border-bottom: 2px solid #3498db; padding-bottom: 10px;">
-            Call Details
-          </h3>
-          <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;">
-            <tr>
-              <td style="padding: 8px 0; font-weight: bold; color: #2c3e50;">Female Participant:</td>
-              <td style="padding: 8px 0; color: #34495e;">${femaleUser.fname} ${femaleUser.lname}</td>
-            </tr>
-            <tr>
-              <td style="padding: 8px 0; font-weight: bold; color: #2c3e50;">Male Participant:</td>
-              <td style="padding: 8px 0; color: #34495e;">${maleUser.fname} ${maleUser.lname}</td>
-            </tr>
-             <tr>
-              <td style="padding: 8px 0; font-weight: bold; color: #2c3e50;">Call Date:</td>
-              <td style="padding: 8px 0; color: #34495e;">${new Date().toLocaleString()}</td>
-            </tr>
-          </table>
-          <div style="background-color: #fff3cd; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
-            <h4 style="margin: 0 0 10px 0; color: #856404;">📹 Video Recording Attached</h4>
-            <p style="margin: 0; color: #856404;">
-              The complete video call recording is attached to this email for your supervision.
-            </p>
-          </div>
-          <div style="background-color: #f8f9fa; padding: 15px; border-radius: 8px; margin-top: 20px;">
-            <p style="margin: 0; font-size: 12px; color: #6c757d; text-align: center;">
-              This recording is provided for Islamic compliance and supervision purposes.<br>
-              Please keep this recording confidential and secure.<br>
-              <strong>Quluub - Islamic Marriage Platform</strong>
-            </p>
-          </div>
-        </div>
-      </div>
+      <!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>${emailSubject}</title>
+        <style>
+          @media only screen and (max-width: 600px) {
+            .container { width: 100% !important; }
+            .content { padding: 15px !important; }
+            .call-details table { font-size: 14px !important; }
+          }
+        </style>
+      </head>
+      <body style="margin: 0; padding: 0; background-color: #f9f9f9;">
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color: #f9f9f9;">
+          ${createEmailHeader('🎥 Video Call Recording', femaleUser.waliName || 'Guardian')}
+          <tr>
+            <td align="center" valign="top" style="padding: 20px;">
+              <div class="container" style="max-width: 600px; margin: 0 auto; background-color: white; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+                <div class="content" style="padding: 30px;">
+                  <div style="background-color: #e8f5e8; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                    <p style="margin: 0; color: #27ae60; font-weight: bold; text-align: center;">
+                      ✅ Islamic Compliance: Video call supervision as requested
+                    </p>
+                  </div>
+                  
+                  <h3 style="color: #34495e; border-bottom: 2px solid #3498db; padding-bottom: 10px; margin-bottom: 20px;">
+                    Call Details
+                  </h3>
+                  
+                  <div class="call-details">
+                    <table style="width: 100%; border-collapse: collapse; margin-bottom: 20px; font-family: Arial, sans-serif;">
+                      <tr>
+                        <td style="padding: 12px 0; font-weight: bold; color: #2c3e50; border-bottom: 1px solid #eee;">Female Participant:</td>
+                        <td style="padding: 12px 0; color: #34495e; border-bottom: 1px solid #eee;">${femaleUser.fname} ${femaleUser.lname}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding: 12px 0; font-weight: bold; color: #2c3e50; border-bottom: 1px solid #eee;">Male Participant:</td>
+                        <td style="padding: 12px 0; color: #34495e; border-bottom: 1px solid #eee;">${maleUser.fname} ${maleUser.lname}</td>
+                      </tr>
+                      <tr>
+                        <td style="padding: 12px 0; font-weight: bold; color: #2c3e50;">Call Date:</td>
+                        <td style="padding: 12px 0; color: #34495e;">${new Date().toLocaleString()}</td>
+                      </tr>
+                    </table>
+                  </div>
+                  
+                  <div style="background-color: #fff3cd; padding: 20px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #ffc107;">
+                    <h4 style="margin: 0 0 10px 0; color: #856404;">📹 Video Recording Attached</h4>
+                    <p style="margin: 0; color: #856404; line-height: 1.5;">
+                      The complete video call recording is attached to this email for your supervision and review.
+                    </p>
+                  </div>
+                  
+                  <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin-top: 20px; text-align: center;">
+                    <p style="margin: 0; font-size: 12px; color: #6c757d; line-height: 1.5;">
+                      This recording is provided for Islamic compliance and supervision purposes.<br>
+                      Please keep this recording confidential and secure.<br><br>
+                      <strong>Quluub - Islamic Marriage Platform</strong><br>
+                      <em>Connecting Hearts, Honoring Faith</em>
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </td>
+          </tr>
+          ${createEmailFooter()}
+        </table>
+      </body>
+      </html>
     `;
 
     // Send email to Wali with MP4 attachment
@@ -163,14 +210,23 @@ const uploadVideoRecording = async (req, res) => {
       html: emailContent,
       attachments: [
         {
-          filename: `video-call-${Date.now()}.mp4`,
+          filename: `video-call-${Date.now()}${mp4Path.endsWith('.mp4') ? '.mp4' : '.webm'}`,
           path: mp4Path,
-          contentType: 'video/mp4'
+          contentType: mp4Path.endsWith('.mp4') ? 'video/mp4' : 'video/webm'
         }
       ]
     };
 
-    await transporter.sendMail(mailOptions);
+    console.log('📧 Attempting to send email to Wali...');
+    console.log('📧 Email config:', {
+      host: process.env.SMTP_HOST,
+      port: process.env.SMTP_PORT,
+      user: process.env.EMAIL_USER,
+      to: femaleUser.waliEmail
+    });
+    
+    const emailResult = await transporter.sendMail(mailOptions);
+    console.log('📧 Email send result:', emailResult);
     
     console.log(`✅ Video recording converted, emailed to Wali: ${femaleUser.waliEmail}`);
     

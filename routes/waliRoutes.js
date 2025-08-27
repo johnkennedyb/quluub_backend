@@ -1,10 +1,13 @@
 const express = require('express');
+const jwt = require('jsonwebtoken');
 const { protect } = require('../middlewares/authMiddleware');
 const { waliAuth } = require('../middlewares/waliAuth');
 const {
   sendVideoCallNotificationToWali,
   getWaliChatView,
 } = require('../controllers/waliController');
+const Chat = require('../models/Chat');
+const User = require('../models/User');
 
 const router = express.Router();
 
@@ -17,6 +20,70 @@ router.post('/video-call-start', protect, sendVideoCallNotificationToWali);
 
 // Secure Wali chat monitoring route
 router.get('/conversation/:wardId/:participantId', waliAuth, getWaliChatView);
+
+// Public Wali chat viewing route with token
+router.get('/public-chat/:token', async (req, res) => {
+  try {
+    const { token } = req.params;
+    
+    // Verify and decode the token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    
+    if (decoded.type !== 'wali_chat_view') {
+      return res.status(400).json({ message: 'Invalid token type' });
+    }
+    
+    const { wardId, participantId, waliEmail } = decoded;
+    
+    // Get the chat messages
+    const messages = await Chat.find({
+      $or: [
+        { senderId: wardId, receiverId: participantId },
+        { senderId: participantId, receiverId: wardId },
+      ],
+    })
+      .populate('senderId', 'fname lname')
+      .populate('receiverId', 'fname lname')
+      .sort({ created: 1 });
+
+    const ward = await User.findById(wardId).select('fname lname username');
+    const participant = await User.findById(participantId).select('fname lname username');
+
+    if (!ward || !participant) {
+      return res.status(404).json({ message: 'Users not found' });
+    }
+
+    // Return the chat data
+    res.json({
+      success: true,
+      data: messages.map(msg => ({
+        message: msg.message,
+        sender: `${msg.senderId.fname} ${msg.senderId.lname}`,
+        receiver: `${msg.receiverId.fname} ${msg.receiverId.lname}`,
+        timestamp: msg.created,
+        senderId: msg.senderId._id.toString()
+      })),
+      ward: `${ward.fname} ${ward.lname}`,
+      wardInfo: {
+        fname: ward.fname,
+        lname: ward.lname,
+        username: ward.username
+      },
+      participant: `${participant.fname} ${participant.lname}`,
+      waliEmail
+    });
+
+  } catch (error) {
+    console.error('Error in public wali chat view:', error);
+    if (error.name === 'JsonWebTokenError') {
+      return res.status(401).json({ message: 'Invalid token' });
+    }
+    if (error.name === 'TokenExpiredError') {
+      return res.status(401).json({ message: 'Token expired' });
+    }
+    res.status(500).json({ message: 'Server error', error: error.message });
+  }
+});
 
 // Wali video call report route
 router.get('/video-call-report', async (req, res) => {

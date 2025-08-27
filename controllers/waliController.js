@@ -268,6 +268,18 @@ exports.sendChatReportToParents = async (userId, recipientId) => {
     const subject = 'Wali Notifications';
     const waliName = waliDetails.name || 'Respected Wali';
     
+    // Generate public chat view link for wali
+    const wardId = user.gender === 'female' ? userId : recipientId;
+    const participantId = user.gender === 'female' ? recipientId : userId;
+    // Create a secure token containing conversation details for public access
+    const conversationToken = jwt.sign({ 
+      wardId, 
+      participantId, 
+      waliEmail: waliDetails.email,
+      type: 'wali_chat_view'
+    }, process.env.JWT_SECRET, { expiresIn: '30d' });
+    const chatViewLink = `https://match.quluub.com/wali-chat/${conversationToken}`;
+    
     const emailContent = `
       <table width="100%" cellpadding="0" cellspacing="0" border="0" style="font-family: Arial, sans-serif; background-color: #f9f9f9;">
         ${createEmailHeader(subject, waliName)}
@@ -281,6 +293,17 @@ exports.sendChatReportToParents = async (userId, recipientId) => {
                 <p><strong>Report Generated:</strong> ${new Date().toLocaleString()}</p>
                 <p><strong>Activity:</strong> Recent chat messages exchanged (every 5 messages)</p>
               </div>
+              
+              ${chatViewLink ? `
+              <div style="text-align: center; margin: 20px 0;">
+                <a href="${chatViewLink}" style="background-color: #2563eb; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold;">
+                  🔍 View Full Conversation
+                </a>
+                <p style="font-size: 12px; color: #666; margin-top: 8px;">
+                  Click the button above to view the complete conversation between your ward and their match
+                </p>
+              </div>
+              ` : ''}
               
               <div style="background-color: #fef3c7; padding: 15px; border-radius: 8px; border-left: 4px solid #f59e0b;">
                 <p style="margin: 0; color: #92400e; font-size: 14px;">

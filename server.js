@@ -19,6 +19,8 @@ const waliRoutes = require('./routes/waliRoutes');
 const feedRoutes = require('./routes/feedRoutes');
 const monthlyUsageRoutes = require('./routes/monthlyUsageRoutes');
 const dashboardRoutes = require('./routes/dashboard');
+const peerjsRoutes = require('./routes/peerjsRoutes');
+const videoRecordingRoutes = require('./routes/videoRecordingRoutes');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const User = require('./models/User');
@@ -49,7 +51,16 @@ const peerServer = ExpressPeerServer(server, {
 
     ],
     credentials: true
-  }
+  },
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    {
+      urls: process.env.TURN_URL,
+      username: process.env.TURN_USERNAME,
+      credential: process.env.TURN_PASSWORD,
+    },
+  ].filter(s => s.urls), // Filter out TURN server if not configured
 });
 
 app.use('/peerjs', peerServer);
@@ -132,14 +143,16 @@ const io = new Server(server, {
   }
 });
 
+// Initialize user tracking maps
+let onlineUsers = new Map();
+let webrtcUsers = new Map();
+
 // Attach Socket.IO instance to Express app for route access
 app.set('io', io);
+app.set('onlineUsers', onlineUsers);
 
 // Create WebRTC namespace for video call functionality
 const webrtcNamespace = io.of('/webrtc');
-
-let onlineUsers = new Map();
-let webrtcUsers = new Map();
 
 // Socket.IO authentication middleware for main namespace
 io.use(async (socket, next) => {
@@ -184,7 +197,7 @@ io.on('connection', (socket) => {
 
   socket.on('join', (userId) => {
     socket.join(userId);
-    onlineUsers.set(userId, socket.id);
+    onlineUsers.set(userId.toString(), socket.id); // Ensure userId is stored as string
     io.emit('getOnlineUsers', Array.from(onlineUsers.keys()));
     console.log(`🏠 User ${userId} joined main room with socket ${socket.id}`);
     console.log(`👥 Total online users: ${onlineUsers.size}`);
@@ -202,73 +215,81 @@ io.on('connection', (socket) => {
     console.log(`💬 Socket ${socket.id} left conversation room: ${conversationId}`);
   });
 
-  // Video Call Invitation Handlers
+  // PERMANENT VIDEO CALL NOTIFICATION SYSTEM - Multi-layered approach
   socket.on('send-video-call-invitation', (data) => {
     console.log('📞 Video call invitation from', data.callerName, 'to', data.recipientId);
-    console.log('📄 Full invitation data:', JSON.stringify(data, null, 2));
-    console.log('👥 Current online users:', Array.from(onlineUsers.keys()));
-    console.log('🗺️ Online users map:', Array.from(onlineUsers.entries()));
     
-    // Check if recipient is online
-    const recipientSocketId = onlineUsers.get(data.recipientId);
-    console.log('🔍 Looking for recipient socket ID:', recipientSocketId);
-    console.log('🔍 Recipient ID type:', typeof data.recipientId);
-    console.log('🔍 Caller ID type:', typeof data.callerId);
+    const recipientId = data.recipientId.toString();
+    const callerId = data.callerId.toString();
+    
+    // Create standardized video call message
+    const videoCallMessage = {
+      senderId: callerId,
+      recipientId: recipientId,
+      message: `${data.callerName} is inviting you to a video call`,
+      messageType: 'video_call_invitation',
+      videoCallData: {
+        callerId: callerId,
+        callerName: data.callerName,
+        sessionId: data.sessionId,
+        timestamp: data.timestamp,
+        status: 'pending'
+      },
+      createdAt: new Date().toISOString()
+    };
+
+    // LAYER 1: Direct socket notification (fastest)
+    const recipientSocketId = onlineUsers.get(recipientId);
+    let notificationSent = false;
     
     if (recipientSocketId) {
-      console.log('✅ Recipient is online, sending invitation to socket:', recipientSocketId);
-      console.log('📡 Sending video call invitation as chat message...');
-      
-      // Send video call invitation as a chat message
-      const videoCallMessage = {
-        senderId: data.callerId,
-        recipientId: data.recipientId,
-        message: `${data.callerName} is inviting you to a video call`,
-        messageType: 'video_call_invitation',
-        videoCallData: {
-          callerId: data.callerId,
-          callerName: data.callerName,
-          sessionId: data.sessionId,
-          timestamp: data.timestamp,
-          status: 'pending'
-        },
-        createdAt: new Date().toISOString()
-      };
-      
-      // Emit as a new message to both users
-      io.to(data.callerId).emit('new_message', videoCallMessage);
-      io.to(data.recipientId).emit('new_message', videoCallMessage);
-      
-      // Direct popup notification event for recipient
-      io.to(data.recipientId).emit('video_call_invitation', videoCallMessage);
-      
-      // Also emit to recipient's socket directly
-      io.to(recipientSocketId).emit('video_call_invitation', videoCallMessage);
-      io.to(recipientSocketId).emit('new_message', videoCallMessage);
-      
-      console.log('✅ Video call invitation sent as chat message');
-      console.log('📤 Sent to caller room:', data.callerId);
-      console.log('📤 Sent to recipient room:', data.recipientId);
-      console.log('📤 Sent to recipient socket:', recipientSocketId);
-    } else {
-      console.log('❌ Recipient is not online:', data.recipientId);
-      console.log('👥 Available online users:', Array.from(onlineUsers.entries()));
-      console.log('🔍 Searching for similar user IDs...');
-      
-      // Try to find similar user IDs (in case of string vs ObjectId issues)
-      const similarUsers = Array.from(onlineUsers.keys()).filter(userId => 
-        userId.toString().includes(data.recipientId.toString()) || 
-        data.recipientId.toString().includes(userId.toString())
-      );
-      console.log('🔍 Similar user IDs found:', similarUsers);
-      
-      socket.emit('video-call-failed', { 
-        message: 'Recipient is not online',
-        recipientId: data.recipientId,
-        onlineUsers: Array.from(onlineUsers.keys()),
-        similarUsers
-      });
+      try {
+        io.to(recipientSocketId).emit('video_call_invitation', videoCallMessage);
+        console.log('✅ LAYER 1: Direct socket notification sent');
+        notificationSent = true;
+      } catch (error) {
+        console.error('❌ LAYER 1 failed:', error);
+      }
     }
+
+    // LAYER 2: Room-based notification (reliable backup)
+    try {
+      io.to(recipientId).emit('video_call_invitation', videoCallMessage);
+      console.log('✅ LAYER 2: Room-based notification sent');
+      notificationSent = true;
+    } catch (error) {
+      console.error('❌ LAYER 2 failed:', error);
+    }
+
+    // LAYER 3: Broadcast to all sockets with user filtering (ultimate fallback)
+    try {
+      io.emit('video_call_invitation_broadcast', {
+        ...videoCallMessage,
+        targetUserId: recipientId
+      });
+      console.log('✅ LAYER 3: Broadcast notification sent');
+      notificationSent = true;
+    } catch (error) {
+      console.error('❌ LAYER 3 failed:', error);
+    }
+
+    // LAYER 4: Chat message backup (persistent notification)
+    try {
+      io.to(callerId).emit('new_message', videoCallMessage);
+      io.to(recipientId).emit('new_message', videoCallMessage);
+      console.log('✅ LAYER 4: Chat message notification sent');
+    } catch (error) {
+      console.error('❌ LAYER 4 failed:', error);
+    }
+
+    // Send result back to caller
+    socket.emit('video-call-invitation-result', {
+      success: notificationSent,
+      recipientOnline: !!recipientSocketId,
+      layersUsed: ['direct', 'room', 'broadcast', 'chat']
+    });
+
+    console.log(`📊 Notification summary - Recipient: ${recipientId}, Online: ${!!recipientSocketId}, Sent: ${notificationSent}`);
   });
 
   socket.on('accept-video-call', (data) => {
@@ -324,10 +345,12 @@ io.on('connection', (socket) => {
     // Remove from online users
     for (let [userId, socketId] of onlineUsers.entries()) {
       if (socketId === socket.id) {
+        console.log(`🚪 User ${userId} left (socket ${socket.id})`);
         onlineUsers.delete(userId);
         break;
       }
     }
+    console.log(`👥 Remaining online users: ${onlineUsers.size}`);
     io.emit('getOnlineUsers', Array.from(onlineUsers.keys()));
   });
 });
@@ -446,6 +469,8 @@ app.use('/api/wali', waliRoutes);
 app.use('/api/feed', feedRoutes);
 app.use('/api/monthly-usage', monthlyUsageRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/peerjs-video-call', peerjsRoutes);
+app.use('/api/video-recording', videoRecordingRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

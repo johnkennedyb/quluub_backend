@@ -6,7 +6,7 @@ const Relationship = require('../models/Relationship');
 const { plans } = require('../config/plans');
 const { sendChatReportToParents } = require('./waliController');
 const Conversation = require('../models/Conversation');
-const { sendWaliViewChatEmail, sendWaliViewChatEmailWithAttachments, sendContactWaliEmail } = require('../utils/emailService');
+const { sendWaliViewChatEmail, sendWaliViewChatEmailWithAttachments, sendWaliViewChatEmailWithChatLink, sendContactWaliEmail } = require('../utils/emailService');
 
 const findUser = async (userId) => {
   return await User.findById(userId);
@@ -29,21 +29,24 @@ const sendInitialWaliEmail = async (femaleUser, otherUser) => {
     const waliEmail = waliDetails?.email;
     if (!waliEmail) return;
 
-    // Build secure chat view link for wali if wali has an account
-    let chatLink = '';
-    const waliUser = await User.findOne({ email: waliEmail }).select('_id');
-    if (waliUser) {
-      const waliToken = jwt.sign({ id: waliUser._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
-      const wardId = femaleUser._id.toString();
-      const participantId = otherUser._id.toString();
-      chatLink = `${process.env.FRONTEND_URL}/wali/conversation/${wardId}/${participantId}?token=${waliToken}`;
-    }
+    // Build public chat view link for wali
+    const wardId = femaleUser._id.toString();
+    const participantId = otherUser._id.toString();
+    // Create a secure token containing conversation details for public access
+    const conversationToken = jwt.sign({ 
+      wardId, 
+      participantId, 
+      waliEmail,
+      type: 'wali_chat_view'
+    }, process.env.JWT_SECRET, { expiresIn: '30d' });
+    const chatLink = `https://match.quluub.com/wali-chat/${conversationToken}`;
 
     const wardName = `${femaleUser.fname} ${femaleUser.lname}`;
     const brotherName = `${otherUser.fname} ${otherUser.lname}`;
     const waliName = waliDetails.name || 'Respected Wali';
 
-    await sendWaliViewChatEmail(waliEmail, waliName, wardName, brotherName, chatLink);
+    // Enhanced email with direct chat view link
+    await sendWaliViewChatEmailWithChatLink(waliEmail, waliName, wardName, brotherName, chatLink);
     console.log('📧 Initial Wali email sent to', waliEmail, 'for conversation between', wardName, 'and', brotherName);
   } catch (err) {
     console.error('❌ Failed to send initial Wali email:', err);
@@ -547,8 +550,8 @@ const addChat = async (req, res) => {
       await sendInitialWaliEmail(currentUser, contact);
     }
 
-    if (totalMessages % 5 === 0) {
-      // Send chat report every 5 messages
+    // Send chat report for first message or every 5 messages
+    if (totalMessages === 1 || totalMessages % 5 === 0) {
       await sendChatReportToParents(userInfo._id, contact._id);
     }
 

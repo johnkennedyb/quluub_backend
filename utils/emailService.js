@@ -271,6 +271,9 @@ const sendSuggestedAccountsEmail = (email, recipientName) => sendEmail({ ...sugg
 const sendContactWaliEmail = (email, brotherName) => sendEmail({ ...contactWaliEmailTemplate(brotherName), to: email });
 const sendWaliViewChatEmail = (email, waliName, wardName, brotherName, chatLink) => sendEmail({ ...waliViewChatEmailTemplate(waliName, wardName, brotherName, chatLink), to: email });
 
+// Enhanced function for sending wali emails with direct chat viewing links
+const sendWaliViewChatEmailWithChatLink = (email, waliName, wardName, brotherName, chatLink) => sendEmail({ ...waliViewChatEmailTemplate(waliName, wardName, brotherName, chatLink), to: email });
+
 // Enhanced Wali email functions with file attachments
 const sendWaliViewChatEmailWithAttachments = (email, waliName, wardName, brotherName, chatLink, attachments = []) => 
   sendEmailWithAttachments(email, waliViewChatEmailTemplate, attachments, waliName, wardName, brotherName, chatLink);
@@ -395,6 +398,7 @@ module.exports = {
   sendContactWaliEmail,
   sendWaliViewChatEmail,
   sendWaliViewChatEmailWithAttachments,
+  sendWaliViewChatEmailWithChatLink,
   sendVideoCallNotificationEmail,
   sendVideoCallNotificationEmailWithAttachments,
   sendBulkEmail,
