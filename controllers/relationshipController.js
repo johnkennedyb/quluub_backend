@@ -412,7 +412,7 @@ exports.withdrawRequest = async (req, res) => {
     // Send email notification if other user exists
     if (otherUser && currentUser) {
       try {
-        await sendRequestWithdrawnEmail(otherUser, currentUser);
+        await sendRequestWithdrawnEmail(otherUser.email, otherUser.fname, currentUser.fname);
       } catch (emailError) {
         console.error('Failed to send withdrawal email:', emailError);
       }

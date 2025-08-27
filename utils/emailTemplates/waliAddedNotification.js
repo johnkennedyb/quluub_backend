@@ -1,9 +1,9 @@
 const emailHeader = require('./components/emailHeader');
 const emailFooterWithIcons = require('./components/emailFooterWithIcons');
 
-const profileViewEmail = (recipientName, viewCount) => {
-  const subject = 'Your Profile Views on Quluub This Week';
-  const title = 'Your Weekly Profile Views';
+const waliAddedNotificationEmail = (waliName, wardName) => {
+  const subject = 'Wali Profile Added - Quluub';
+  const title = 'Wali Profile Notification';
   const html = `
     <!DOCTYPE html>
     <html lang="en">
@@ -30,10 +30,10 @@ const profileViewEmail = (recipientName, viewCount) => {
             <table class="container" width="600" border="0" cellspacing="0" cellpadding="0" style="max-width:600px; background-color:#ffffff;">
               <tr>
                 <td style="padding:30px;">
-                  <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">Dear ${recipientName},</p>
+                  <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">Dear ${waliName},</p>
                   <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">Salaamun alaekum</p>
                   <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">
-                    This week, ${viewCount} people viewed your profile on Quluub. Log in now to view.
+                    You have been added as a Wali (guardian) for ${wardName} on the Quluub platform. You will receive notifications about their activities and can monitor their conversations as needed.
                   </p>
                   <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">
                     JazaakumuLlahu khairan,<br>
@@ -61,4 +61,4 @@ const profileViewEmail = (recipientName, viewCount) => {
   return { subject, html };
 };
 
-module.exports = profileViewEmail;
+module.exports = waliAddedNotificationEmail;

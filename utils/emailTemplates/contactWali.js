@@ -30,12 +30,17 @@ const contactWaliEmail = (brotherName) => {
             <table class="container" width="600" border="0" cellspacing="0" cellpadding="0" style="max-width:600px; background-color:#ffffff;">
               <tr>
                 <td style="padding:30px;">
-                  <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">Salaamun alaekum ${brotherName},</p>
+                  <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">Dear ${brotherName},</p>
+                  <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">Salaamun alaekum</p>
                   <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">
                     As you engage in conversations on Quluub, please remember that it's essential to contact the Wali (guardian) of the sister you're chatting with. This ensures respectful and appropriate communication in line with Islamic principles.
                   </p>
                   <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">
                     Please reach out to the sister's Wali.
+                  </p>
+                  <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">
+                    JazaakumuLlahu khairan,<br>
+                    The Quluub Team
                   </p>
                 </td>
               </tr>

@@ -30,7 +30,8 @@ const pendingRequestsEmail = (recipientName, requestCount) => {
             <table class="container" width="600" border="0" cellspacing="0" cellpadding="0" style="max-width:600px; background-color:#ffffff;">
               <tr>
                 <td style="padding:30px;">
-                  <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">Salaamun alaekum ${recipientName},</p>
+                  <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">Dear ${recipientName},</p>
+                  <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">Salaamun alaekum</p>
                   <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">
                     You have ${requestCount} new connection requests waiting for your response on Quluub.
                   </p>
@@ -39,6 +40,10 @@ const pendingRequestsEmail = (recipientName, requestCount) => {
                   </p>
                   <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">
                     May Allaah guide you in making the best decision.
+                  </p>
+                  <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">
+                    JazaakumuLlahu khairan,<br>
+                    The Quluub Team
                   </p>
                 </td>
               </tr>

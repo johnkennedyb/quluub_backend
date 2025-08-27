@@ -30,12 +30,17 @@ const purchasePlanEmail = (recipientName) => {
             <table class="container" width="600" border="0" cellspacing="0" cellpadding="0" style="max-width:600px; background-color:#ffffff;">
               <tr>
                 <td style="padding:30px;">
-                  <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">Salaamun alaekum ${recipientName},</p>
+                  <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">Dear ${recipientName},</p>
+                  <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">Salaamun alaekum</p>
                   <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">
-                    Elevate your experience on Quluub with our exclusive Premium Plan. Enjoy a higher number of monthly requests, an ad-free experience, video calling with your matches, and more opportunities to connect.
+                    Elevate your experience on Quluub with our exclusive Premium Plan. Enjoy a higher number of monthly requests, ad-free experience and more opportunities to connect.
                   </p>
                   <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">
                     Upgrade today and start making meaningful connections!
+                  </p>
+                  <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">
+                    JazaakumuLlahu khairan,<br>
+                    The Quluub Team
                   </p>
                 </td>
               </tr>

@@ -30,7 +30,8 @@ const encourageUnhideEmail = (recipientName) => {
             <table class="container" width="600" border="0" cellspacing="0" cellpadding="0" style="max-width:600px; background-color:#ffffff;">
               <tr>
                 <td style="padding:30px;">
-                  <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">Salaamun alaekum ${recipientName},</p>
+                  <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">Dear ${recipientName},</p>
+                  <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">Salaamun alaekum</p>
                   <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">
                     We noticed that your profile on Quluub is currently hidden. Did you know that having an active profile increases your chances of finding meaningful connections?
                   </p>
@@ -39,6 +40,10 @@ const encourageUnhideEmail = (recipientName) => {
                   </p>
                   <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">
                     If you need any assistance or have questions, please don't hesitate to contact our support team.
+                  </p>
+                  <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">
+                    JazaakumuLlahu khairan,<br>
+                    The Quluub Team
                   </p>
                 </td>
               </tr>

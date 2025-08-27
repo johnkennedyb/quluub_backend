@@ -1,4 +1,3 @@
-const nodemailer = require('nodemailer');
 const { sendEmailViaAPI } = require('./mailerooService');
 
 // Import email templates
@@ -22,33 +21,8 @@ const validateEmailTemplate = require('./emailTemplates/validateEmail');
 const videoCallNotificationEmailTemplate = require('./emailTemplates/videoCallNotification');
 const testEmailTemplate = require('./emailTemplates/testEmail');
 
-// Maileroo SMTP configuration
-console.log('Loading Maileroo email configuration...');
-console.log('SMTP Host: smtp.maileroo.com');
-console.log('SMTP Port: 465');
-console.log('Mail User: mail@quluub.com');
-
-let emailConfig = {
-  host: 'smtp.maileroo.com',
-  port: 465,
-  secure: true,
-  auth: {
-    user: 'mail@quluub.com',
-    pass: 'a870017e53102ebeaee7a381'
-  },
-  tls: {
-    rejectUnauthorized: false
-  },
-  debug: true,
-  logger: true
-};
-
-console.log('Email configuration loaded:', {
-  host: emailConfig.host,
-  port: emailConfig.port,
-  secure: emailConfig.secure,
-  hasAuth: !!emailConfig.auth.user
-});
+// Email configuration for API-only service
+console.log('Loading Maileroo API email configuration...');
 
 // Email settings
 let emailSettings = {
@@ -57,40 +31,10 @@ let emailSettings = {
   replyTo: process.env.REPLY_TO || 'support@quluub.com'
 };
 
-// Create transporter with current configuration
-let transporter = nodemailer.createTransport(emailConfig);
+// Initialize email service
+console.log('✅ Email service initialized with Maileroo API');
 
-// Verify transporter configuration
-const verifyTransporter = () => {
-  console.log('\n--- Verifying email transporter configuration ---');
-  console.log('Host:', emailConfig.host);
-  console.log('Port:', emailConfig.port);
-  console.log('Secure:', emailConfig.secure);
-  
-  transporter.verify((error, success) => {
-    if (error) {
-      console.error('❌ Email transporter verification failed:', error.message);
-      if (error.code) console.error('Error code:', error.code);
-      if (error.command) console.error('Failed command:', error.command);
-      if (error.response) {
-        console.error('SMTP Error Response:', {
-          code: error.responseCode,
-          response: error.response
-        });
-      }
-      console.error('Error stack:', error.stack);
-    } else {
-      console.log('✅ Email transporter verified successfully');
-      console.log('Server is ready to accept messages');
-    }
-  });
-};
-
-// Verify on startup
-console.log('\n--- Initializing email service ---');
-verifyTransporter();
-
-// Generic email sending function with Maileroo API fallback
+// Generic email sending function using Maileroo API only
 const sendEmail = async (emailOptions) => {
   // Handle both old format (to, templateFunction, ...args) and new format ({ to, subject, html })
   let to, subject, html;
@@ -120,135 +64,65 @@ const sendEmail = async (emailOptions) => {
   try {
     console.log('Subject:', subject);
     
-    // Try Maileroo API first
-    console.log('Attempting to send via Maileroo API...');
+    // Send via Maileroo API
+    console.log('Sending via Maileroo API...');
     const apiSuccess = await sendEmailViaAPI(to, subject, html, emailSettings.fromEmail);
     
     if (apiSuccess) {
       console.log('✅ Email sent successfully via Maileroo API');
       return true;
+    } else {
+      console.error('❌ Email sending failed via Maileroo API');
+      return false;
     }
-    
-    console.log('Maileroo API failed, falling back to SMTP...');
-    
-    const mailOptions = {
-      from: `"${emailSettings.fromName}" <${emailSettings.fromEmail}>`,
-      to,
-      subject,
-      html,
-      replyTo: emailSettings.replyTo,
-    };
-    
-    console.log('Sending email with options:', {
-      from: mailOptions.from,
-      to: mailOptions.to,
-      subject: mailOptions.subject,
-      hasHtml: !!mailOptions.html
-    });
-    
-    const info = await transporter.sendMail(mailOptions);
-    console.log('✅ Email sent successfully');
-    console.log('Message ID:', info.messageId);
-    console.log('Preview URL:', nodemailer.getTestMessageUrl(info));
-    return true;
     
   } catch (error) {
     console.error('❌ Email sending failed:', error.message);
-    if (error.response) {
-      console.error('SMTP Error:', {
-        code: error.responseCode,
-        response: error.response
-      });
-    }
     console.error('Error stack:', error.stack);
     return false;
   }
 };
 
-// Enhanced email sending function with attachment support
+// Enhanced email sending function with attachment support (API-only)
 const sendEmailWithAttachments = async (to, templateFunction, attachments = [], ...args) => {
   console.log(`\n--- Attempting to send email with attachments to: ${to} ---`);
+  console.log('⚠️ Note: Attachments not supported via API, sending email without attachments');
   
   try {
     const { subject, html } = templateFunction(...args);
     console.log('Subject:', subject);
-    console.log('Attachments:', attachments.length);
     
-    const mailOptions = {
-      from: `"${emailSettings.fromName}" <${emailSettings.fromEmail}>`,
-      to,
-      subject,
-      html,
-      replyTo: emailSettings.replyTo,
-      attachments: attachments
-    };
+    // Send via API without attachments
+    const apiSuccess = await sendEmailViaAPI(to, subject, html, emailSettings.fromEmail);
     
-    console.log('Sending email with options:', {
-      from: mailOptions.from,
-      to: mailOptions.to,
-      subject: mailOptions.subject,
-      hasHtml: !!mailOptions.html,
-      attachmentCount: attachments.length
-    });
-    
-    const info = await transporter.sendMail(mailOptions);
-    console.log('✅ Email with attachments sent successfully');
-    console.log('Message ID:', info.messageId);
-    console.log('Preview URL:', nodemailer.getTestMessageUrl(info));
-    return true;
+    if (apiSuccess) {
+      console.log('✅ Email sent successfully via Maileroo API (without attachments)');
+      return true;
+    } else {
+      console.error('❌ Email sending failed via Maileroo API');
+      return false;
+    }
     
   } catch (error) {
     console.error('❌ Email with attachments sending failed:', error.message);
-    if (error.response) {
-      console.error('SMTP Error:', {
-        code: error.responseCode,
-        response: error.response
-      });
-    }
     console.error('Error stack:', error.stack);
     return false;
   }
 };
 
-// Function to update email configuration
+// Function to update email configuration (API-only)
 const updateEmailConfig = async (newConfig) => {
   try {
-    emailConfig = {
-      host: newConfig.smtpHost,
-      port: parseInt(newConfig.smtpPort),
-      secure: parseInt(newConfig.smtpPort) === 465,
-      auth: {
-        user: newConfig.smtpUser,
-        pass: newConfig.smtpPassword
-      },
-      tls: {
-        rejectUnauthorized: false
-      }
-    };
-
     emailSettings = {
       fromName: newConfig.fromName,
       fromEmail: newConfig.fromEmail,
       replyTo: newConfig.replyTo
     };
 
-    // Create new transporter with updated config
-    transporter = nodemailer.createTransport(emailConfig);
-    
-    // Verify new configuration
-    return new Promise((resolve) => {
-      transporter.verify((error, success) => {
-        if (error) {
-          console.error('Updated email transporter verification failed:', error);
-          resolve(false);
-        } else {
-          console.log('Updated email transporter verified successfully');
-          resolve(true);
-        }
-      });
-    });
+    console.log('✅ Email configuration updated successfully');
+    return true;
   } catch (error) {
-    console.error('Error updating email-service configuration:', error);
+    console.error('Error updating email configuration:', error);
     return false;
   }
 };
@@ -268,7 +142,17 @@ const sendPlanExpiringEmail = (email, recipientName) => sendEmail({ ...planExpir
 const sendPlanExpiredEmail = (email, recipientName) => sendEmail({ ...planExpiredEmailTemplate(recipientName), to: email });
 const sendEncourageUnhideEmail = (email, recipientName) => sendEmail({ ...encourageUnhideEmailTemplate(recipientName), to: email });
 const sendSuggestedAccountsEmail = (email, recipientName) => sendEmail({ ...suggestedAccountsEmailTemplate(recipientName), to: email });
-const sendContactWaliEmail = (email, brotherName) => sendEmail({ ...contactWaliEmailTemplate(brotherName), to: email });
+const sendContactWaliEmail = (waliEmail, brotherName) => {
+  const contactWaliEmailTemplate = require('./emailTemplates/contactWali');
+  return sendEmail({ ...contactWaliEmailTemplate(brotherName), to: waliEmail });
+};
+
+// Function to send wali added notification email
+const sendWaliAddedNotificationEmail = (waliEmail, waliName, wardName) => {
+  const waliAddedNotificationEmailTemplate = require('./emailTemplates/waliAddedNotification');
+  return sendEmail({ ...waliAddedNotificationEmailTemplate(waliName, wardName), to: waliEmail });
+};
+
 const sendWaliViewChatEmail = (email, waliName, wardName, brotherName, chatLink) => sendEmail({ ...waliViewChatEmailTemplate(waliName, wardName, brotherName, chatLink), to: email });
 
 // Enhanced function for sending wali emails with direct chat viewing links
@@ -287,49 +171,52 @@ const sendValidationEmail = (email, recipientName, validationToken) => {
   return sendEmail({ ...validateEmailTemplate(recipientName, validationUrl, validationToken), to: email });
 };
 
-// New function to send bulk emails
+// New function to send bulk emails (API-only)
 const sendBulkEmail = async (users, subject, message, attachments = []) => {
   let successCount = 0;
   let failedCount = 0;
 
+  if (attachments.length > 0) {
+    console.log('⚠️ Note: Attachments not supported via API, sending emails without attachments');
+  }
+
   for (const user of users) {
-    const mailOptions = {
-      from: `"${emailSettings.fromName}" <${emailSettings.fromEmail}>`,
-      to: user.email,
-      subject: subject,
-      html: `
-        <div style="max-width: 600px; margin: 0 auto; padding: 20px; font-family: Arial, sans-serif; background-color: #f9f9f9;">
-          <div style="background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
-            <div style="text-align: center; margin-bottom: 30px;">
-              <h1 style="color: #075e54; margin: 0;">Quluub</h1>
-              <p style="color: #666; font-size: 16px; margin-top: 10px;">Islamic Marriage Platform</p>
-            </div>
-            
-            <p style="color: #333; line-height: 1.6; font-size: 16px;">
-              Assalamu Alaikum ${user.fname || 'Dear Member'},
+    const html = `
+      <div style="max-width: 600px; margin: 0 auto; padding: 20px; font-family: Arial, sans-serif; background-color: #f9f9f9;">
+        <div style="background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+          <div style="text-align: center; margin-bottom: 30px;">
+            <h1 style="color: #075e54; margin: 0;">Quluub</h1>
+            <p style="color: #666; font-size: 16px; margin-top: 10px;">Islamic Marriage Platform</p>
+          </div>
+          
+          <p style="color: #333; line-height: 1.6; font-size: 16px;">
+            Assalamu Alaikum ${user.fname || 'Dear Member'},
+          </p>
+          
+          <div style="color: #666; line-height: 1.6; margin: 20px 0;">
+            ${message.replace(/\n/g, '<br>')}
+          </div>
+          
+          <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #eee;">
+            <p style="color: #999; font-size: 12px; text-align: center;">
+              Best regards,<br>
+              The Quluub Team<br>
+              <a href="${process.env.FRONTEND_URL}" style="color: #075e54;">quluub.com</a>
             </p>
-            
-            <div style="color: #666; line-height: 1.6; margin: 20px 0;">
-              ${message.replace(/\n/g, '<br>')}
-            </div>
-            
-            <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #eee;">
-              <p style="color: #999; font-size: 12px; text-align: center;">
-                Best regards,<br>
-                The Quluub Team<br>
-                <a href="${process.env.FRONTEND_URL}" style="color: #075e54;">quluub.com</a>
-              </p>
-            </div>
           </div>
         </div>
-      `,
-      attachments: attachments
-    };
+      </div>
+    `;
 
     try {
-      await transporter.sendMail(mailOptions);
-      successCount++;
-      console.log(`Bulk email sent to: ${user.email}`);
+      const apiSuccess = await sendEmailViaAPI(user.email, subject, html, emailSettings.fromEmail);
+      if (apiSuccess) {
+        successCount++;
+        console.log(`Bulk email sent to: ${user.email}`);
+      } else {
+        failedCount++;
+        console.error(`Failed to send bulk email to ${user.email}: API failed`);
+      }
     } catch (error) {
       failedCount++;
       console.error(`Failed to send bulk email to ${user.email}:`, error);
@@ -343,18 +230,18 @@ const sendBulkEmail = async (users, subject, message, attachments = []) => {
   return { successCount, failedCount };
 };
 
-// New function to send test emails
+// New function to send test emails (API-only)
 const sendTestEmail = async (testEmail) => {
-  const mailOptions = {
-    from: `"${emailSettings.fromName}" <${emailSettings.fromEmail}>`,
-    to: testEmail,
-    subject: 'Test Email - Quluub Configuration',
-    html: `<h1>Test Email</h1><p>This is a test email to verify your email configuration.</p>`
-  };
+  const subject = 'Test Email - Quluub Configuration';
+  const html = `<h1>Test Email</h1><p>This is a test email to verify your email configuration.</p>`;
 
   try {
-    await transporter.sendMail(mailOptions);
-    console.log('Test email sent successfully');
+    const apiSuccess = await sendEmailViaAPI(testEmail, subject, html, emailSettings.fromEmail);
+    if (apiSuccess) {
+      console.log('Test email sent successfully via API');
+    } else {
+      throw new Error('API email sending failed');
+    }
   } catch (error) {
     console.error('Error sending test email:', error);
     throw error;
@@ -363,7 +250,7 @@ const sendTestEmail = async (testEmail) => {
 
 // Function to get the current email configuration
 const getEmailConfigService = () => {
-  return { ...emailConfig, ...emailSettings };
+  return { ...emailSettings };
 };
 
 // Function to get email metrics (placeholder)
@@ -396,6 +283,7 @@ module.exports = {
   sendEncourageUnhideEmail,
   sendSuggestedAccountsEmail,
   sendContactWaliEmail,
+  sendWaliAddedNotificationEmail,
   sendWaliViewChatEmail,
   sendWaliViewChatEmailWithAttachments,
   sendWaliViewChatEmailWithChatLink,

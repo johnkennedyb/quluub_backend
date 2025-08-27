@@ -6,6 +6,7 @@ const mongoose = require('mongoose');
 const LRUCache = require('lru-cache');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const { sendWaliAddedNotificationEmail, sendProfileViewEmail } = require('../utils/emailService');
 
 // Simple in-memory cache for profile data
 const profileCache = new Map();
@@ -228,6 +229,20 @@ exports.updateUserProfile = async (req, res) => {
       sect: updatedUser.sect,
       dressingCovering: updatedUser.dressingCovering
     });
+    
+    // Check if waliDetails was updated and send notification email
+    if (req.body.waliDetails && updatedUser.waliDetails) {
+      try {
+        const waliData = JSON.parse(updatedUser.waliDetails);
+        if (waliData.email && waliData.name) {
+          console.log('📧 Sending wali notification email...');
+          await sendWaliAddedNotificationEmail(waliData.email, waliData.name, `${updatedUser.fname} ${updatedUser.lname}`);
+          console.log('✅ Wali notification email sent successfully');
+        }
+      } catch (parseError) {
+        console.error('❌ Error parsing waliDetails for email notification:', parseError);
+      }
+    }
     
     // Clear profile cache after update
     clearProfileCache(req.params.id);
@@ -933,11 +948,22 @@ exports.logProfileView = async (req, res) => {
       });
       
       // Increment the profile views count on the target user
-      await User.findByIdAndUpdate(userId, {
+      const updatedUser = await User.findByIdAndUpdate(userId, {
         $inc: { profileViews: 1 }
-      });
+      }, { new: true });
       
       console.log(`Profile view logged: ${viewerId} viewed ${userId}`);
+      
+      // Send profile view notification email if user has reached milestone view counts
+      const viewCount = updatedUser.profileViews;
+      if (viewCount && (viewCount === 5 || viewCount === 10 || viewCount % 25 === 0)) {
+        try {
+          await sendProfileViewEmail(targetUser.email, targetUser.fname, viewCount);
+          console.log(`Profile view milestone email sent to ${targetUser.email} for ${viewCount} views`);
+        } catch (emailError) {
+          console.error('Error sending profile view email:', emailError);
+        }
+      }
     }
     
     res.status(200).json({ message: 'Profile view logged successfully' });

@@ -26,6 +26,7 @@ const mongoose = require('mongoose');
 const User = require('./models/User');
 const { trackRequestPerformance, performanceEndpoint, healthCheckEndpoint } = require('./middlewares/performanceMonitor');
 const { createIndexes } = require('./config/indexes');
+const { startScheduler } = require('./utils/emailScheduler');
 
 // Load environment variables from the env file
 dotenv.config({ path: './env (1)' });
@@ -479,6 +480,10 @@ const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, async () => {
   console.log(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
+  
+  // Start email scheduler for automated notifications
+  startScheduler();
+  console.log('📧 Email scheduler started successfully');
   
   // Create database indexes for optimal performance after MongoDB connects
   mongoose.connection.once('connected', async () => {
