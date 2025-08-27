@@ -6,7 +6,7 @@ const mongoose = require('mongoose');
 const LRUCache = require('lru-cache');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
-const { sendWaliAddedNotificationEmail, sendProfileViewEmail } = require('../utils/emailService');
+const { sendWaliAddedNotificationEmail, sendProfileViewEmail, sendEncourageUnhideEmail } = require('../utils/emailService');
 
 // Simple in-memory cache for profile data
 const profileCache = new Map();
@@ -192,6 +192,8 @@ exports.updateUserProfile = async (req, res) => {
     console.log('🔄 Processing field updates...');
     console.log('📥 Request body fields:', Object.keys(req.body));
     console.log('📥 Full request body:', JSON.stringify(req.body, null, 2));
+    console.log('🔍 Current user.hidden value:', user.hidden);
+    console.log('🔍 Request body hidden value:', req.body.hidden);
     let fieldsUpdated = 0;
     let fieldsSkipped = [];
     
@@ -242,6 +244,31 @@ exports.updateUserProfile = async (req, res) => {
       } catch (parseError) {
         console.error('❌ Error parsing waliDetails for email notification:', parseError);
       }
+    }
+    
+    // Check if profile was hidden and send notification email
+    console.log('🔍 CHECKING PROFILE HIDDEN EMAIL TRIGGER:');
+    console.log('  - req.body.hidden:', req.body.hidden);
+    console.log('  - req.body.hidden !== undefined:', req.body.hidden !== undefined);
+    console.log('  - req.body.hidden === true:', req.body.hidden === true);
+    console.log('  - user.hidden (before update):', user.hidden);
+    console.log('  - user.hidden !== true:', user.hidden !== true);
+    console.log('  - All conditions met:', req.body.hidden !== undefined && req.body.hidden === true && user.hidden !== true);
+    
+    // Send email whenever profile is set to hidden (regardless of previous state for testing)
+    if (req.body.hidden !== undefined && req.body.hidden === true) {
+      try {
+        console.log('🔒 PROFILE HIDDEN - Triggering email notification');
+        console.log('📧 Email recipient:', updatedUser.email);
+        console.log('👤 User name:', updatedUser.fname);
+        console.log('📧 Sending profile hidden notification email...');
+        await sendEncourageUnhideEmail(updatedUser.email, updatedUser.fname);
+        console.log('✅ Profile hidden notification email sent successfully to:', updatedUser.email);
+      } catch (emailError) {
+        console.error('❌ Error sending profile hidden notification email:', emailError);
+      }
+    } else {
+      console.log('❌ Profile hidden email NOT triggered - conditions not met');
     }
     
     // Clear profile cache after update

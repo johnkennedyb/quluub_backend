@@ -168,6 +168,12 @@ const uploadVideoRecording = async (req, res) => {
     console.log('📹 Using WebM file directly (no conversion)');
     mp4Path = webmPath;
 
+    // Generate secure download link
+    const videoFilename = path.basename(mp4Path);
+    const downloadToken = crypto.randomBytes(32).toString('hex');
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000';
+    const downloadLink = `${backendUrl}/api/video-recording/download/${videoFilename}?token=${downloadToken}`;
+
     // Use the updated email header and footer components
     const createEmailHeader = require('../utils/emailTemplates/components/emailHeader');
     const createEmailFooter = require('../utils/emailTemplates/components/emailFooter');
@@ -265,13 +271,7 @@ const uploadVideoRecording = async (req, res) => {
       to: waliEmail
     });
 
-    // Generate secure download link for the backend
-    const videoFilename = path.basename(mp4Path);
-    const downloadToken = crypto.randomBytes(32).toString('hex');
-    const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000';
-    
-    // Backend download link only
-    const downloadLink = `${backendUrl}/api/video-recording/download/${videoFilename}?token=${downloadToken}`;
+    // Use the already declared variables from above
 
     // Use the existing Maileroo service function
     const { sendEmailViaAPI } = require('../utils/mailerooService');
