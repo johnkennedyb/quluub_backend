@@ -171,7 +171,7 @@ const uploadVideoRecording = async (req, res) => {
     // Generate secure download link
     const videoFilename = path.basename(mp4Path);
     const downloadToken = crypto.randomBytes(32).toString('hex');
-    const backendUrl = process.env.BACKEND_URL || 'https://quluub-backend-1.onrender.com';
+    const backendUrl =  'https://quluub-backend-1.onrender.com';
     const downloadLink = `${backendUrl}/api/video-recording/download/${videoFilename}?token=${downloadToken}`;
 
     // Use the updated email header and footer components

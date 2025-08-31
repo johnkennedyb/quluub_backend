@@ -21,9 +21,11 @@ const monthlyUsageRoutes = require('./routes/monthlyUsageRoutes');
 const dashboardRoutes = require('./routes/dashboard');
 const peerjsRoutes = require('./routes/peerjsRoutes');
 const videoRecordingRoutes = require('./routes/videoRecordingRoutes');
+const videoCallTimeRoutes = require('./routes/videoCallTime');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const User = require('./models/User');
+const VideoCallTime = require('./models/VideoCallTime');
 const { trackRequestPerformance, performanceEndpoint, healthCheckEndpoint } = require('./middlewares/performanceMonitor');
 const { createIndexes } = require('./config/indexes');
 const { startScheduler } = require('./utils/emailScheduler');
@@ -216,12 +218,41 @@ io.on('connection', (socket) => {
     console.log(`💬 Socket ${socket.id} left conversation room: ${conversationId}`);
   });
 
-  // PERMANENT VIDEO CALL NOTIFICATION SYSTEM - Multi-layered approach
-  socket.on('send-video-call-invitation', (data) => {
+  // PERMANENT VIDEO CALL NOTIFICATION SYSTEM - Multi-layered approach with time limit validation
+  socket.on('send-video-call-invitation', async (data) => {
     console.log('📞 Video call invitation from', data.callerName, 'to', data.recipientId);
     
     const recipientId = data.recipientId.toString();
     const callerId = data.callerId.toString();
+    let videoCallRecord = null;
+    let remainingTime = 300; // Default 5 minutes
+
+    try {
+      // Check if users can make video calls (5-minute limit validation)
+      videoCallRecord = await VideoCallTime.getOrCreatePairRecord(callerId, recipientId);
+      
+      if (!videoCallRecord.canMakeVideoCall()) {
+        // Send rejection message to caller
+        const rejectionMessage = {
+          type: 'video_call_rejected',
+          reason: 'time_limit_exceeded',
+          message: 'Video call time limit (5 minutes) exceeded for this match. No more video calls allowed.',
+          remainingTime: 0,
+          limitExceeded: true
+        };
+        
+        socket.emit('video_call_rejected', rejectionMessage);
+        console.log('🚫 Video call rejected - time limit exceeded for pair:', callerId, recipientId);
+        return;
+      }
+
+      // Add remaining time info to the invitation
+      remainingTime = videoCallRecord.getRemainingTime();
+      console.log(`⏰ Remaining video call time for this pair: ${Math.floor(remainingTime / 60)}:${remainingTime % 60}`);
+    } catch (error) {
+      console.error('Error checking video call time limit:', error);
+      // Continue with call invitation even if time check fails (fallback)
+    }
     
     // Create standardized video call message
     const videoCallMessage = {
@@ -234,7 +265,8 @@ io.on('connection', (socket) => {
         callerName: data.callerName,
         sessionId: data.sessionId,
         timestamp: data.timestamp,
-        status: 'pending'
+        status: 'pending',
+        remainingTime: remainingTime
       },
       createdAt: new Date().toISOString()
     };
@@ -327,16 +359,45 @@ io.on('connection', (socket) => {
     });
   });
 
-  socket.on('end-video-call', (data) => {
+  socket.on('end-video-call', async (data) => {
     console.log('📞 Video call ended:', data.sessionId);
-    // Notify both participants
+    
+    try {
+      // Track video call time if duration is provided
+      if (data.duration && data.callerId && data.recipientId) {
+        const videoCallRecord = await VideoCallTime.getOrCreatePairRecord(data.callerId, data.recipientId);
+        const session = videoCallRecord.addCallTime(data.duration, 'video');
+        await videoCallRecord.save();
+        
+        console.log(`⏰ Video call time tracked: ${data.duration} seconds. Total: ${videoCallRecord.totalTimeSpent}s, Remaining: ${videoCallRecord.getRemainingTime()}s`);
+        
+        // Notify both participants about remaining time
+        const timeInfo = {
+          sessionId: data.sessionId,
+          duration: data.duration,
+          totalTimeSpent: videoCallRecord.totalTimeSpent,
+          remainingTime: videoCallRecord.getRemainingTime(),
+          limitExceeded: videoCallRecord.limitExceeded,
+          endedBy: data.endedBy || 'unknown'
+        };
+        
+        io.to(data.callerId).emit('video-call-ended', timeInfo);
+        io.to(data.recipientId).emit('video-call-ended', timeInfo);
+        
+        return;
+      }
+    } catch (error) {
+      console.error('Error tracking video call time:', error);
+    }
+    
+    // Fallback - notify participants without time tracking
     io.to(data.callerId).emit('video-call-ended', {
       sessionId: data.sessionId,
-      endedBy: data.callerId === data.callerId ? 'caller' : 'recipient'
+      endedBy: data.endedBy || 'unknown'
     });
     io.to(data.recipientId).emit('video-call-ended', {
       sessionId: data.sessionId,
-      endedBy: data.callerId === data.callerId ? 'caller' : 'recipient'
+      endedBy: data.endedBy || 'unknown'
     });
   });
 
@@ -411,8 +472,34 @@ webrtcNamespace.on('connection', (socket) => {
     });
   });
 
-  socket.on('video-call-end', (data) => {
+  socket.on('video-call-end', async (data) => {
     console.log('Video call ended by', data.userId);
+    
+    try {
+      // Track video call time if duration is provided
+      if (data.duration && data.userId && data.recipientId) {
+        const videoCallRecord = await VideoCallTime.getOrCreatePairRecord(data.userId, data.recipientId);
+        const session = videoCallRecord.addCallTime(data.duration, 'video');
+        await videoCallRecord.save();
+        
+        console.log(`⏰ Video call time tracked: ${data.duration} seconds. Total: ${videoCallRecord.totalTimeSpent}s, Remaining: ${videoCallRecord.getRemainingTime()}s`);
+        
+        // Notify recipient about remaining time
+        socket.to(data.recipientId).emit('video-call-ended', {
+          userId: data.userId,
+          duration: data.duration,
+          totalTimeSpent: videoCallRecord.totalTimeSpent,
+          remainingTime: videoCallRecord.getRemainingTime(),
+          limitExceeded: videoCallRecord.limitExceeded
+        });
+        
+        return;
+      }
+    } catch (error) {
+      console.error('Error tracking video call time:', error);
+    }
+    
+    // Fallback - notify recipient without time tracking
     socket.to(data.recipientId).emit('video-call-ended', {
       userId: data.userId
     });
@@ -472,6 +559,7 @@ app.use('/api/monthly-usage', monthlyUsageRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/peerjs-video-call', peerjsRoutes);
 app.use('/api/video-recording', videoRecordingRoutes);
+app.use('/api/video-call-time', videoCallTimeRoutes);
 
 app.use(notFound);
 app.use(errorHandler);
