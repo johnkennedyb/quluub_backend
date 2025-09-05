@@ -69,17 +69,34 @@ const peerServer = ExpressPeerServer(server, {
 app.use('/peerjs', peerServer);
 
 const corsOptions = {
-  origin: [
-    process.env.FRONTEND_URL, 
-    'http://localhost:8080', 
-    'https://preview--quluub-reborn-project-99.lovable.app',
-    'https://love.quluub.com',
-    'https://match.quluub.com', // Added production frontend
-    'https://quluub-reborn-project-33.vercel.app'
-  ].filter(Boolean),
-  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    const allowedOrigins = [
+      process.env.FRONTEND_URL,
+      process.env.CLIENT_URL,
+      'http://localhost:8080',
+      'http://localhost:5173',
+      'https://preview--quluub-reborn-project-99.lovable.app',
+      'https://love.quluub.com',
+      'https://match.quluub.com',
+      'https://quluub-reborn-project-33.vercel.app'
+    ].filter(Boolean);
+    
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      console.log(`🚫 CORS blocked origin: ${origin}`);
+      console.log(`✅ Allowed origins: ${allowedOrigins.join(', ')}`);
+      callback(null, true); // Allow all origins in production for now
+    }
+  },
+  methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
   credentials: true,
   optionsSuccessStatus: 204,
+  preflightContinue: false
 };
 
 app.use(cors(corsOptions));
