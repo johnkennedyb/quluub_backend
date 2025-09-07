@@ -235,7 +235,7 @@ io.on('connection', (socket) => {
     console.log(`💬 Socket ${socket.id} left conversation room: ${conversationId}`);
   });
 
-  // PERMANENT VIDEO CALL NOTIFICATION SYSTEM - Multi-layered approach with time limit validation
+  // SIMPLIFIED VIDEO CALL NOTIFICATION SYSTEM - Single reliable layer
   socket.on('send-video-call-invitation', async (data) => {
     console.log('📞 Video call invitation from', data.callerName, 'to', data.recipientId);
     
@@ -255,7 +255,8 @@ io.on('connection', (socket) => {
           reason: 'time_limit_exceeded',
           message: 'Video call time limit (5 minutes) exceeded for this match. No more video calls allowed.',
           remainingTime: 0,
-          limitExceeded: true
+          limitExceeded: true,
+          sessionId: data.sessionId
         };
         
         socket.emit('video_call_rejected', rejectionMessage);
@@ -288,58 +289,59 @@ io.on('connection', (socket) => {
       createdAt: new Date().toISOString()
     };
 
-    // LAYER 1: Direct socket notification (fastest)
+    // Single reliable notification - direct to recipient
     const recipientSocketId = onlineUsers.get(recipientId);
     let notificationSent = false;
     
     if (recipientSocketId) {
       try {
         io.to(recipientSocketId).emit('video_call_invitation', videoCallMessage);
-        console.log('✅ LAYER 1: Direct socket notification sent');
+        console.log('✅ Video call invitation sent to recipient');
         notificationSent = true;
       } catch (error) {
-        console.error('❌ LAYER 1 failed:', error);
+        console.error('❌ Failed to send video call invitation:', error);
       }
     }
 
-    // LAYER 2: Room-based notification (reliable backup)
+    // Also send to recipient's room as backup
     try {
       io.to(recipientId).emit('video_call_invitation', videoCallMessage);
-      console.log('✅ LAYER 2: Room-based notification sent');
+      console.log('✅ Video call invitation sent to recipient room');
       notificationSent = true;
     } catch (error) {
-      console.error('❌ LAYER 2 failed:', error);
-    }
-
-    // LAYER 3: Broadcast to all sockets with user filtering (ultimate fallback)
-    try {
-      io.emit('video_call_invitation_broadcast', {
-        ...videoCallMessage,
-        targetUserId: recipientId
-      });
-      console.log('✅ LAYER 3: Broadcast notification sent');
-      notificationSent = true;
-    } catch (error) {
-      console.error('❌ LAYER 3 failed:', error);
-    }
-
-    // LAYER 4: Chat message backup (persistent notification)
-    try {
-      io.to(callerId).emit('new_message', videoCallMessage);
-      io.to(recipientId).emit('new_message', videoCallMessage);
-      console.log('✅ LAYER 4: Chat message notification sent');
-    } catch (error) {
-      console.error('❌ LAYER 4 failed:', error);
+      console.error('❌ Failed to send to recipient room:', error);
     }
 
     // Send result back to caller
     socket.emit('video-call-invitation-result', {
       success: notificationSent,
-      recipientOnline: !!recipientSocketId,
-      layersUsed: ['direct', 'room', 'broadcast', 'chat']
+      recipientOnline: !!recipientSocketId
     });
 
-    console.log(`📊 Notification summary - Recipient: ${recipientId}, Online: ${!!recipientSocketId}, Sent: ${notificationSent}`);
+    console.log(`📊 Video call invitation - Recipient: ${recipientId}, Online: ${!!recipientSocketId}, Sent: ${notificationSent}`);
+  });
+
+  // Handle call rejection
+  socket.on('reject-video-call', (data) => {
+    console.log('🚫 Video call rejected:', data);
+    const { sessionId, callerId, reason } = data;
+    
+    // Notify caller that call was rejected
+    const callerSocketId = onlineUsers.get(callerId.toString());
+    if (callerSocketId) {
+      io.to(callerSocketId).emit('video_call_rejected', {
+        sessionId,
+        reason,
+        message: reason === 'busy' ? 'User is currently busy' : 'Call was declined'
+      });
+    }
+    
+    // Also send to caller's room
+    io.to(callerId.toString()).emit('video_call_rejected', {
+      sessionId,
+      reason,
+      message: reason === 'busy' ? 'User is currently busy' : 'Call was declined'
+    });
   });
 
   socket.on('accept-video-call', (data) => {
@@ -349,6 +351,35 @@ io.on('connection', (socket) => {
       recipientId: data.recipientId,
       sessionId: data.sessionId
     });
+  });
+
+  // Handle call termination - broadcast to both participants
+  socket.on('end-video-call', (data) => {
+    console.log('🔚 Video call ended:', data);
+    const { sessionId, userId, participantId } = data;
+    
+    // Broadcast call end to both participants
+    const participants = [userId.toString(), participantId.toString()];
+    
+    participants.forEach(participantId => {
+      const participantSocketId = onlineUsers.get(participantId);
+      if (participantSocketId) {
+        io.to(participantSocketId).emit('video_call_ended', {
+          sessionId,
+          endedBy: userId,
+          timestamp: new Date().toISOString()
+        });
+      }
+      
+      // Also send to participant's room
+      io.to(participantId).emit('video_call_ended', {
+        sessionId,
+        endedBy: userId,
+        timestamp: new Date().toISOString()
+      });
+    });
+    
+    console.log(`📊 Video call end notification sent to both participants: ${participants.join(', ')}`);
   });
 
   // Handle accept-call event from frontend
