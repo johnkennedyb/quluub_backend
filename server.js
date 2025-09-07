@@ -102,11 +102,11 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 
-// Performance monitoring middleware
-if (process.env.ENABLE_PERFORMANCE_LOGGING === 'true') {
-  app.use(trackRequestPerformance);
-  console.log('📈 Performance monitoring enabled');
-}
+// Performance monitoring disabled for production speed
+// if (process.env.ENABLE_PERFORMANCE_LOGGING === 'true') {
+//   app.use(trackRequestPerformance);
+//   console.log('📈 Performance monitoring enabled');
+// }
 
 // OPTIMIZED SOCKET.IO CONFIGURATION FOR PRODUCTION
 const io = new Server(server, {
@@ -141,15 +141,11 @@ const io = new Server(server, {
       'https://quluub-reborn-project-33.vercel.app'
     ].filter(Boolean);
     
-    console.log('🔍 Socket connection attempt from origin:', origin);
-    console.log('🔍 Allowed origins:', allowedOrigins);
-    console.log('🔍 FRONTEND_URL env var:', process.env.FRONTEND_URL);
+    // Removed verbose logging for performance
     
     if (!origin || allowedOrigins.includes(origin)) {
-      console.log('✅ Socket connection allowed');
       callback(null, true);
     } else {
-      console.warn('🚫 Socket connection rejected from origin:', origin);
       callback('Origin not allowed', false);
     }
   },
@@ -213,31 +209,25 @@ webrtcNamespace.use(async (socket, next) => {
 
 // Main namespace connection (for general app functionality)
 io.on('connection', (socket) => {
-  console.log('🔗 Main socket connected:', socket.id);
+  // Removed verbose socket logging for performance
 
   socket.on('join', (userId) => {
     socket.join(userId);
-    onlineUsers.set(userId.toString(), socket.id); // Ensure userId is stored as string
+    onlineUsers.set(userId.toString(), socket.id);
     io.emit('getOnlineUsers', Array.from(onlineUsers.keys()));
-    console.log(`🏠 User ${userId} joined main room with socket ${socket.id}`);
-    console.log(`👥 Total online users: ${onlineUsers.size}`);
-    console.log(`📋 Online users list:`, Array.from(onlineUsers.entries()));
   });
 
-  // 💬 CONVERSATION ROOM MANAGEMENT
+  // CONVERSATION ROOM MANAGEMENT
   socket.on('join_conversation', (conversationId) => {
     socket.join(conversationId);
-    console.log(`💬 Socket ${socket.id} joined conversation room: ${conversationId}`);
   });
 
   socket.on('leave_conversation', (conversationId) => {
     socket.leave(conversationId);
-    console.log(`💬 Socket ${socket.id} left conversation room: ${conversationId}`);
   });
 
-  // SIMPLIFIED VIDEO CALL NOTIFICATION SYSTEM - Single reliable layer
+  // VIDEO CALL NOTIFICATION SYSTEM
   socket.on('send-video-call-invitation', async (data) => {
-    console.log('📞 Video call invitation from', data.callerName, 'to', data.recipientId);
     
     const recipientId = data.recipientId.toString();
     const callerId = data.callerId.toString();
@@ -260,15 +250,12 @@ io.on('connection', (socket) => {
         };
         
         socket.emit('video_call_rejected', rejectionMessage);
-        console.log('🚫 Video call rejected - time limit exceeded for pair:', callerId, recipientId);
         return;
       }
 
       // Add remaining time info to the invitation
       remainingTime = videoCallRecord.getRemainingTime();
-      console.log(`⏰ Remaining video call time for this pair: ${Math.floor(remainingTime / 60)}:${remainingTime % 60}`);
     } catch (error) {
-      console.error('Error checking video call time limit:', error);
       // Continue with call invitation even if time check fails (fallback)
     }
     
@@ -296,20 +283,18 @@ io.on('connection', (socket) => {
     if (recipientSocketId) {
       try {
         io.to(recipientSocketId).emit('video_call_invitation', videoCallMessage);
-        console.log('✅ Video call invitation sent to recipient');
         notificationSent = true;
       } catch (error) {
-        console.error('❌ Failed to send video call invitation:', error);
+        // Silent error handling
       }
     }
 
     // Also send to recipient's room as backup
     try {
       io.to(recipientId).emit('video_call_invitation', videoCallMessage);
-      console.log('✅ Video call invitation sent to recipient room');
       notificationSent = true;
     } catch (error) {
-      console.error('❌ Failed to send to recipient room:', error);
+      // Silent error handling
     }
 
     // Send result back to caller
@@ -318,12 +303,11 @@ io.on('connection', (socket) => {
       recipientOnline: !!recipientSocketId
     });
 
-    console.log(`📊 Video call invitation - Recipient: ${recipientId}, Online: ${!!recipientSocketId}, Sent: ${notificationSent}`);
+    // Removed verbose logging for performance
   });
 
   // Handle call rejection
   socket.on('reject-video-call', (data) => {
-    console.log('🚫 Video call rejected:', data);
     const { sessionId, callerId, reason } = data;
     
     // Notify caller that call was rejected
@@ -345,7 +329,6 @@ io.on('connection', (socket) => {
   });
 
   socket.on('accept-video-call', (data) => {
-    console.log('✅ Video call accepted by', data.recipientId, 'for caller', data.callerId);
     io.to(data.callerId).emit('video-call-accepted', {
       callerId: data.callerId,
       recipientId: data.recipientId,
@@ -355,7 +338,6 @@ io.on('connection', (socket) => {
 
   // Handle call termination - broadcast to both participants
   socket.on('end-video-call', (data) => {
-    console.log('🔚 Video call ended:', data);
     const { sessionId, userId, participantId } = data;
     
     // Broadcast call end to both participants
@@ -379,12 +361,11 @@ io.on('connection', (socket) => {
       });
     });
     
-    console.log(`📊 Video call end notification sent to both participants: ${participants.join(', ')}`);
+    // Video call end notification sent to both participants
   });
 
   // Handle accept-call event from frontend
   socket.on('accept-call', (data) => {
-    console.log('✅ Call accepted - notifying caller:', data);
     
     // Find the caller's socket and notify them
     // The roomId/sessionId contains the caller info
@@ -394,12 +375,11 @@ io.on('connection', (socket) => {
         sessionId: data.sessionId || data.roomId,
         recipientName: data.recipientName
       });
-      console.log('📡 Emitted call_accepted event to notify caller');
+      // Emitted call_accepted event to notify caller
     }
   });
 
   socket.on('decline-video-call', (data) => {
-    console.log('❌ Video call declined by', data.recipientId, 'for caller', data.callerId);
     io.to(data.callerId).emit('video-call-declined', {
       callerId: data.callerId,
       recipientId: data.recipientId,
@@ -408,7 +388,6 @@ io.on('connection', (socket) => {
   });
 
   socket.on('end-video-call', async (data) => {
-    console.log('📞 Video call ended:', data.sessionId);
     
     try {
       // Track video call time if duration is provided
@@ -417,7 +396,7 @@ io.on('connection', (socket) => {
         const session = videoCallRecord.addCallTime(data.duration, 'video');
         await videoCallRecord.save();
         
-        console.log(`⏰ Video call time tracked: ${data.duration} seconds. Total: ${videoCallRecord.totalTimeSpent}s, Remaining: ${videoCallRecord.getRemainingTime()}s`);
+        // Video call time tracked successfully
         
         // Notify both participants about remaining time
         const timeInfo = {
@@ -435,7 +414,7 @@ io.on('connection', (socket) => {
         return;
       }
     } catch (error) {
-      console.error('Error tracking video call time:', error);
+      // Silent error handling for performance
     }
     
     // Fallback - notify participants without time tracking
@@ -451,40 +430,33 @@ io.on('connection', (socket) => {
 
 
   socket.on('disconnect', () => {
-    console.log('🔌 Main socket disconnected:', socket.id);
     // Remove from online users
     for (let [userId, socketId] of onlineUsers.entries()) {
       if (socketId === socket.id) {
-        console.log(`🚪 User ${userId} left (socket ${socket.id})`);
         onlineUsers.delete(userId);
         break;
       }
     }
-    console.log(`👥 Remaining online users: ${onlineUsers.size}`);
     io.emit('getOnlineUsers', Array.from(onlineUsers.keys()));
   });
 });
 
 // WebRTC namespace connection (for video call functionality)
 webrtcNamespace.on('connection', (socket) => {
-  console.log('📹 WebRTC socket connected:', socket.id, 'User ID:', socket.userId);
 
   socket.on('join', (userId) => {
     // Use authenticated user ID for security
     const authenticatedUserId = socket.userId;
     socket.join(authenticatedUserId);
     webrtcUsers.set(authenticatedUserId, socket.id);
-    console.log(`🏠 User ${socket.user.fname} (${authenticatedUserId}) joined WebRTC room with socket ${socket.id}`);
   });
 
   // WebRTC Signaling Handlers
   socket.on('video-call-offer', (data) => {
-    console.log('📞 Video call offer from', socket.user.fname, '(', socket.userId, ') to', data.recipientId);
     
     // Check if recipient is online in WebRTC namespace
     const recipientSocketId = webrtcUsers.get(data.recipientId);
     if (recipientSocketId) {
-      console.log('✅ Recipient is online in WebRTC, sending offer to socket:', recipientSocketId);
       socket.to(data.recipientId).emit('video-call-offer', {
         offer: data.offer,
         callerId: socket.userId, // Use authenticated caller ID
@@ -492,13 +464,11 @@ webrtcNamespace.on('connection', (socket) => {
         callerAvatar: data.callerAvatar
       });
     } else {
-      console.log('❌ Recipient is not online in WebRTC namespace:', data.recipientId);
       socket.emit('video-call-failed', { message: 'Recipient is not online' });
     }
   });
 
   socket.on('video-call-answer', (data) => {
-    console.log('Video call answer from', data.recipientId, 'to', data.callerId);
     socket.to(data.callerId).emit('video-call-answer', {
       answer: data.answer,
       recipientId: data.recipientId
@@ -506,7 +476,6 @@ webrtcNamespace.on('connection', (socket) => {
   });
 
   socket.on('ice-candidate', (data) => {
-    console.log('ICE candidate from', data.senderId, 'to', data.recipientId);
     socket.to(data.recipientId).emit('ice-candidate', {
       candidate: data.candidate,
       senderId: data.senderId
@@ -514,14 +483,12 @@ webrtcNamespace.on('connection', (socket) => {
   });
 
   socket.on('video-call-reject', (data) => {
-    console.log('Video call rejected by', data.recipientId);
     socket.to(data.callerId).emit('video-call-rejected', {
       recipientId: data.recipientId
     });
   });
 
   socket.on('video-call-end', async (data) => {
-    console.log('Video call ended by', data.userId);
     
     try {
       // Track video call time if duration is provided
@@ -530,7 +497,7 @@ webrtcNamespace.on('connection', (socket) => {
         const session = videoCallRecord.addCallTime(data.duration, 'video');
         await videoCallRecord.save();
         
-        console.log(`⏰ Video call time tracked: ${data.duration} seconds. Total: ${videoCallRecord.totalTimeSpent}s, Remaining: ${videoCallRecord.getRemainingTime()}s`);
+        // Video call time tracked successfully
         
         // Notify recipient about remaining time
         socket.to(data.recipientId).emit('video-call-ended', {
@@ -544,7 +511,7 @@ webrtcNamespace.on('connection', (socket) => {
         return;
       }
     } catch (error) {
-      console.error('Error tracking video call time:', error);
+      // Silent error handling for performance
     }
     
     // Fallback - notify recipient without time tracking
@@ -554,14 +521,12 @@ webrtcNamespace.on('connection', (socket) => {
   });
 
   socket.on('video-call-cancel', (data) => {
-    console.log('Video call cancelled by', data.callerId);
     socket.to(data.recipientId).emit('video-call-cancelled', {
       callerId: data.callerId
     });
   });
 
   socket.on('disconnect', async () => {
-    console.log('🔌 WebRTC user disconnected:', socket.id);
     let userIdToUpdate;
     for (let [userId, socketId] of webrtcUsers.entries()) {
       if (socketId === socket.id) {
@@ -574,9 +539,8 @@ webrtcNamespace.on('connection', (socket) => {
     if (userIdToUpdate) {
       try {
         await User.findByIdAndUpdate(userIdToUpdate, { lastSeen: new Date() });
-        console.log(`🕰️ Updated lastSeen for WebRTC user ${userIdToUpdate}`);
       } catch (error) {
-        console.error('Failed to update lastSeen on disconnect:', error);
+        // Silent error handling
       }
     }
   });
@@ -619,7 +583,6 @@ server.listen(PORT, async () => {
   
   // Start email scheduler for automated notifications
   startScheduler();
-  console.log('📧 Email scheduler started successfully');
   
   // Create database indexes for optimal performance after MongoDB connects
   mongoose.connection.once('connected', async () => {
