@@ -1,5 +1,131 @@
 const Relationship = require('../models/Relationship');
 const User = require('../models/User');
+const Message = require('../models/Message');
+const Call = require('../models/Call');
+
+// Helper function to generate activity feed items
+const generateActivityFeed = async (userId) => {
+    try {
+        const feedItems = [];
+        
+        // Get recent messages (last 24 hours)
+        const recentMessages = await Message.find({
+            $or: [{ sender: userId }, { receiver: userId }],
+            createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+        })
+        .populate('sender', 'fname lname username')
+        .populate('receiver', 'fname lname username')
+        .sort({ createdAt: -1 })
+        .limit(10)
+        .lean();
+
+        // Get recent video calls (last 24 hours)
+        const recentCalls = await Call.find({
+            $or: [{ caller: userId }, { recipient: userId }],
+            createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+        })
+        .populate('caller', 'fname lname username')
+        .populate('recipient', 'fname lname username')
+        .sort({ createdAt: -1 })
+        .limit(10)
+        .lean();
+
+        // Process messages into feed items
+        recentMessages.forEach(message => {
+            const isReceived = message.receiver._id.toString() === userId;
+            const otherUser = isReceived ? message.sender : message.receiver;
+            
+            if (message.messageType === 'video_call_invitation') {
+                feedItems.push({
+                    id: message._id.toString(),
+                    type: 'video_call',
+                    user: {
+                        username: otherUser.username,
+                        profile_pic: null
+                    },
+                    message: isReceived 
+                        ? `${otherUser.fname} ${otherUser.lname} invited you to a video call`
+                        : `You invited ${otherUser.fname} ${otherUser.lname} to a video call`,
+                    timestamp: message.createdAt,
+                    videoCallData: message.videoCallData
+                });
+            } else {
+                feedItems.push({
+                    id: message._id.toString(),
+                    type: 'message',
+                    user: {
+                        username: otherUser.username,
+                        profile_pic: null
+                    },
+                    message: isReceived 
+                        ? `${otherUser.fname} ${otherUser.lname} sent you a message`
+                        : `You sent a message to ${otherUser.fname} ${otherUser.lname}`,
+                    timestamp: message.createdAt
+                });
+            }
+        });
+
+        // Process video calls into feed items
+        recentCalls.forEach(call => {
+            const isReceived = call.recipient._id.toString() === userId;
+            const otherUser = isReceived ? call.caller : call.recipient;
+            
+            let statusMessage = '';
+            switch (call.status) {
+                case 'completed':
+                    statusMessage = isReceived 
+                        ? `Video call with ${otherUser.fname} ${otherUser.lname} completed`
+                        : `You completed a video call with ${otherUser.fname} ${otherUser.lname}`;
+                    break;
+                case 'missed':
+                    statusMessage = isReceived 
+                        ? `You missed a video call from ${otherUser.fname} ${otherUser.lname}`
+                        : `${otherUser.fname} ${otherUser.lname} missed your video call`;
+                    break;
+                case 'declined':
+                    statusMessage = isReceived 
+                        ? `You declined a video call from ${otherUser.fname} ${otherUser.lname}`
+                        : `${otherUser.fname} ${otherUser.lname} declined your video call`;
+                    break;
+                case 'ringing':
+                    statusMessage = isReceived 
+                        ? `Incoming video call from ${otherUser.fname} ${otherUser.lname}`
+                        : `Calling ${otherUser.fname} ${otherUser.lname}`;
+                    break;
+                default:
+                    statusMessage = isReceived 
+                        ? `Video call from ${otherUser.fname} ${otherUser.lname}`
+                        : `Video call to ${otherUser.fname} ${otherUser.lname}`;
+            }
+
+            feedItems.push({
+                id: call._id.toString(),
+                type: 'video_call',
+                user: {
+                    username: otherUser.username,
+                    profile_pic: null
+                },
+                message: statusMessage,
+                timestamp: call.createdAt,
+                videoCallData: {
+                    callerId: call.caller._id.toString(),
+                    callerName: `${call.caller.fname} ${call.caller.lname}`,
+                    sessionId: call.roomId,
+                    status: call.status
+                }
+            });
+        });
+
+        // Sort all feed items by timestamp (newest first) and limit to 20
+        return feedItems
+            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+            .slice(0, 20);
+
+    } catch (error) {
+        console.error('Error generating activity feed:', error);
+        return [];
+    }
+};
 
 // @desc    Get all data for the dashboard in a single call
 // @route   GET /api/dashboard/combined
@@ -27,13 +153,16 @@ const getCombinedDashboardData = async (req, res) => {
 
         console.log('Matches data being sent:', JSON.stringify(matches, null, 2));
 
+        // Get recent activity feed items (messages and video calls)
+        const feedItems = await generateActivityFeed(userId);
+
         res.json({
             matches,
             pendingRequests,
             sentRequests,
             profileViewsCount: user ? user.profileViews : 0,
             favorites: user ? user.favorites : [],
-            feedItems: [] // Return empty array as Feed model doesn't exist
+            feedItems
         });
 
     } catch (error) {

@@ -110,52 +110,32 @@ app.use(express.json());
 
 // OPTIMIZED SOCKET.IO CONFIGURATION FOR PRODUCTION
 const io = new Server(server, {
-  path: '/socket.io/', // Explicitly define the path
   cors: corsOptions,
-  transports: ['polling', 'websocket'], // Prioritize polling for shared hostingPrefer websocket for better performance
-  allowEIO3: true,
+  transports: ['websocket', 'polling'], // Prioritize websocket for better performance
   
-  // Connection timeouts optimized for real-time performance
-  pingTimeout: 30000, // 30 seconds (reduced from 60s)
-  pingInterval: 15000, // 15 seconds (reduced from 25s)
-  upgradeTimeout: 10000, // 10 seconds (reduced from 30s)
+  // Aggressive performance optimizations
+  pingTimeout: 20000, // 20 seconds
+  pingInterval: 10000, // 10 seconds
+  upgradeTimeout: 5000, // 5 seconds
   
-  // Buffer and connection limits
-  maxHttpBufferSize: 1e6, // 1MB
-  connectTimeout: 20000, // 20 seconds connection timeout
+  // Reduced buffer sizes for faster processing
+  maxHttpBufferSize: 5e5, // 500KB (reduced from 1MB)
+  connectTimeout: 10000, // 10 seconds
   
-  // Performance optimizations
-  serveClient: false, // Don't serve socket.io client files
-  cookie: false, // Disable cookies for better performance
+  // Maximum performance settings
+  serveClient: false,
+  cookie: false,
   
-  // Connection validation
+  // Simplified connection validation
   allowRequest: (req, callback) => {
-    // Basic rate limiting and validation
-    const origin = req.headers.origin;
-    const allowedOrigins = [
-      process.env.FRONTEND_URL, 
-      'http://localhost:8080', 
-      'https://preview--quluub-reborn-project-99.lovable.app',
-      'https://love.quluub.com',
-      'https://match.quluub.com', // Added production frontend
-      'https://quluub-reborn-project-33.vercel.app'
-    ].filter(Boolean);
-    
-    // Removed verbose logging for performance
-    
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback('Origin not allowed', false);
-    }
+    callback(null, true); // Allow all for maximum speed
   },
   
-  // Engine.IO options for better performance
-  allowUpgrades: true,
+  // Optimized compression
   perMessageDeflate: {
-    threshold: 1024, // Compress messages larger than 1KB
-    concurrencyLimit: 10,
-    memLevel: 7
+    threshold: 512, // Compress smaller messages
+    concurrencyLimit: 5, // Reduce concurrency for speed
+    memLevel: 6
   }
 });
 
@@ -209,12 +189,13 @@ webrtcNamespace.use(async (socket, next) => {
 
 // Main namespace connection (for general app functionality)
 io.on('connection', (socket) => {
-  // Removed verbose socket logging for performance
-
   socket.on('join', (userId) => {
     socket.join(userId);
     onlineUsers.set(userId.toString(), socket.id);
-    io.emit('getOnlineUsers', Array.from(onlineUsers.keys()));
+    // Throttle online users broadcast for performance
+    if (onlineUsers.size % 10 === 0) {
+      io.emit('getOnlineUsers', Array.from(onlineUsers.keys()));
+    }
   });
 
   // CONVERSATION ROOM MANAGEMENT
@@ -283,6 +264,14 @@ io.on('connection', (socket) => {
     if (recipientSocketId) {
       try {
         io.to(recipientSocketId).emit('video_call_invitation', videoCallMessage);
+        // Also emit for activity feed
+        io.to(recipientSocketId).emit('send-video-call-invitation', {
+          callerId: callerId,
+          callerName: data.callerName,
+          callerUsername: data.callerUsername,
+          sessionId: data.sessionId,
+          timestamp: data.timestamp
+        });
         notificationSent = true;
       } catch (error) {
         // Silent error handling
@@ -292,6 +281,14 @@ io.on('connection', (socket) => {
     // Also send to recipient's room as backup
     try {
       io.to(recipientId).emit('video_call_invitation', videoCallMessage);
+      // Also emit for activity feed
+      io.to(recipientId).emit('send-video-call-invitation', {
+        callerId: callerId,
+        callerName: data.callerName,
+        callerUsername: data.callerUsername,
+        sessionId: data.sessionId,
+        timestamp: data.timestamp
+      });
       notificationSent = true;
     } catch (error) {
       // Silent error handling
@@ -318,6 +315,14 @@ io.on('connection', (socket) => {
         reason,
         message: reason === 'busy' ? 'User is currently busy' : 'Call was declined'
       });
+      // Emit call status update for activity feed
+      io.to(callerSocketId).emit('call-status-update', {
+        sessionId,
+        status: 'declined',
+        callerId: callerId,
+        otherUserName: data.recipientName || 'Unknown',
+        otherUserUsername: data.recipientUsername || 'Unknown'
+      });
     }
     
     // Also send to caller's room
@@ -325,6 +330,14 @@ io.on('connection', (socket) => {
       sessionId,
       reason,
       message: reason === 'busy' ? 'User is currently busy' : 'Call was declined'
+    });
+    // Emit call status update for activity feed
+    io.to(callerId.toString()).emit('call-status-update', {
+      sessionId,
+      status: 'declined',
+      callerId: callerId,
+      otherUserName: data.recipientName || 'Unknown',
+      otherUserUsername: data.recipientUsername || 'Unknown'
     });
   });
 
@@ -351,6 +364,14 @@ io.on('connection', (socket) => {
           endedBy: userId,
           timestamp: new Date().toISOString()
         });
+        // Emit call status update for activity feed
+        io.to(participantSocketId).emit('call-status-update', {
+          sessionId,
+          status: 'completed',
+          callerId: userId,
+          otherUserName: data.otherUserName || 'Unknown',
+          otherUserUsername: data.otherUserUsername || 'Unknown'
+        });
       }
       
       // Also send to participant's room
@@ -358,6 +379,14 @@ io.on('connection', (socket) => {
         sessionId,
         endedBy: userId,
         timestamp: new Date().toISOString()
+      });
+      // Emit call status update for activity feed
+      io.to(participantId).emit('call-status-update', {
+        sessionId,
+        status: 'completed',
+        callerId: userId,
+        otherUserName: data.otherUserName || 'Unknown',
+        otherUserUsername: data.otherUserUsername || 'Unknown'
       });
     });
     

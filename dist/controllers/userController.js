@@ -124,8 +124,27 @@ exports.getUserProfile = async (req, res) => {
 // @access  Private
 exports.getAllUsers = async (req, res) => {
   try {
-    const users = await User.find().select('-password');
-    res.json(users);
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50;
+    const skip = (page - 1) * limit;
+    
+    // Optimized query with pagination and minimal fields
+    const users = await User.find()
+      .select('fname lname email gender age city country createdAt isActive isPremium')
+      .limit(limit)
+      .skip(skip)
+      .lean();
+      
+    const total = await User.countDocuments();
+    
+    res.json({
+      users,
+      pagination: {
+        current: page,
+        pages: Math.ceil(total / limit),
+        total
+      }
+    });
   } catch (error) {
     console.error(error);
     res.status(500).json({ message: 'Server error', error: error.message });

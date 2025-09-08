@@ -531,6 +531,16 @@ const addChat = async (req, res) => {
       // Also broadcast to conversation room if users are in it
       io.to(messageData.conversationId).emit('new_message', messageData);
       
+      // Emit for activity feed notification
+      io.to(contact._id.toString()).emit('newMessage', {
+        senderId: userInfo._id,
+        senderName: `${currentUser.fname} ${currentUser.lname}`,
+        senderUsername: currentUser.username,
+        message: message,
+        messageType: messageType || 'text',
+        timestamp: new Date().toISOString()
+      });
+      
       console.log('✅ Message broadcasted successfully');
     } else {
       console.warn('⚠️ Socket.io not available for broadcasting');
