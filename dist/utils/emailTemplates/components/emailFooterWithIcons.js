@@ -17,63 +17,32 @@ const emailFooterWithIcons = `
               <p style="margin: 0 0 20px 0; font-size: 12px; line-height: 18px; color: #333333; font-family: Arial, sans-serif;">
                 &copy; 2024 Quluub. All rights reserved.
               </p>
-              <table
-                border="0"
-                cellpadding="0"
-                cellspacing="0"
-                width="100%"
-              >
+              <!-- Use a 5-column table to guarantee all icons stay on one line across email clients -->
+              <table border="0" cellpadding="0" cellspacing="0" role="presentation" style="margin: 0 auto;">
                 <tr>
-                  <td align="center" colspan="5">
-                    <a
-                      href="https://www.facebook.com/Quluubplatform"
-                      target="_blank"
-                    >
-                      <img
-                        src="https://img.icons8.com/color/48/000000/facebook.png"
-                        alt="Facebook"
-                        style="display: inline-block; border: 0; margin: 0 10px;"
-                      />
+                  <td align="center" valign="middle" style="padding: 0 6px;">
+                    <a href="https://www.facebook.com/Quluubplatform" target="_blank" style="text-decoration:none;">
+                      <img src="https://img.icons8.com/color/48/000000/facebook.png" alt="Facebook" width="36" height="36" style="display:block; border:0; width:36px; height:36px;" />
                     </a>
-                    <a
-                      href="https://x.com/_Quluub?t=hPSL5bi-oVzRu1AnHmyNfA&s=08"
-                      target="_blank"
-                    >
-                      <img
-                        src="https://img.icons8.com/color/48/000000/twitterx.png"
-                        alt="Twitter"
-                        style="display: inline-block; border: 0; margin: 0 10px;"
-                      />
+                  </td>
+                  <td align="center" valign="middle" style="padding: 0 6px;">
+                    <a href="https://x.com/_Quluub?t=hPSL5bi-oVzRu1AnHmyNfA&s=08" target="_blank" style="text-decoration:none;">
+                      <img src="https://img.icons8.com/color/48/000000/twitterx.png" alt="X (Twitter)" width="36" height="36" style="display:block; border:0; width:36px; height:36px;" />
                     </a>
-                    <a
-                      href="https://www.instagram.com/_quluub/profilecard/?igsh=MTNuYnBxMmdmOHE4Mg=="
-                      target="_blank"
-                    >
-                      <img
-                        src="https://img.icons8.com/color/48/000000/instagram-new.png"
-                        alt="Instagram"
-                        style="display: inline-block; border: 0; margin: 0 10px;"
-                      />
+                  </td>
+                  <td align="center" valign="middle" style="padding: 0 6px;">
+                    <a href="https://www.instagram.com/_quluub/profilecard/?igsh=MTNuYnBxMmdmOHE4Mg==" target="_blank" style="text-decoration:none;">
+                      <img src="https://img.icons8.com/color/48/000000/instagram-new.png" alt="Instagram" width="36" height="36" style="display:block; border:0; width:36px; height:36px;" />
                     </a>
-                    <a
-                      href="https://www.youtube.com/@Quluubplatform"
-                      target="_blank"
-                    >
-                      <img
-                        src="https://img.icons8.com/color/48/000000/youtube-play.png"
-                        alt="YouTube"
-                        style="display: inline-block; border: 0; margin: 0 10px;"
-                      />
+                  </td>
+                  <td align="center" valign="middle" style="padding: 0 6px;">
+                    <a href="https://www.youtube.com/@Quluubplatform" target="_blank" style="text-decoration:none;">
+                      <img src="https://img.icons8.com/color/48/000000/youtube-play.png" alt="YouTube" width="36" height="36" style="display:block; border:0; width:36px; height:36px;" />
                     </a>
-                    <a
-                      href="https://www.tiktok.com/@_quluub?_t=8nWc7U4dvDE&_r=1"
-                      target="_blank"
-                    >
-                      <img
-                        src="https://img.icons8.com/color/48/000000/tiktok.png"
-                        alt="TikTok"
-                        style="display: inline-block; border: 0; margin: 0 10px;"
-                      />
+                  </td>
+                  <td align="center" valign="middle" style="padding: 0 6px;">
+                    <a href="https://www.tiktok.com/@_quluub?_t=8nWc7U4dvDE&_r=1" target="_blank" style="text-decoration:none;">
+                      <img src="https://img.icons8.com/color/48/000000/tiktok.png" alt="TikTok" width="36" height="36" style="display:block; border:0; width:36px; height:36px;" />
                     </a>
                   </td>
                 </tr>
@@ -83,6 +52,6 @@ const emailFooterWithIcons = `
         </table>
       </td>
     </tr>
-  `;
+`;
 
 module.exports = emailFooterWithIcons;
