@@ -74,44 +74,54 @@ exports.getFeed = async (req, res) => {
       });
     });
 
+    // Get recent messages (including video call invitations)
     // Get recent messages
     const recentMessages = await Chat.find({
       $or: [
-        { sender: userId },
-        { receiver: userId }
+        { senderId: userId },
+        { receiverId: userId }
       ],
-      createdAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }
+      created: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) } // Fetch from the last 7 days
     }).populate([
       {
-        path: 'sender',
+        path: 'senderId',
         model: 'User',
-        select: 'username fname lname profilePicture'
+        select: 'username fname lname profile_pic'
       },
       {
-        path: 'receiver',
+        path: 'receiverId',
         model: 'User',
-        select: 'username fname lname profilePicture'
+        select: 'username fname lname profile_pic'
       }
-    ]).sort({ createdAt: -1 }).limit(20);
+    ]).sort({ created: -1 }).limit(20);
 
     recentMessages.forEach(message => {
-      const otherUser = message.sender._id.toString() === userId 
-        ? message.receiver 
-        : message.sender;
+      const isSender = message.senderId._id.toString() === userId;
+      const otherUser = isSender ? message.receiverId : message.senderId;
       
-      const isReceived = message.receiver._id.toString() === userId;
+      // Since the Chat model doesn't have messageType, we check the content.
+      const isVideoCall = message.message && (message.message.includes('video call invitation') || message.message.includes('Video Call Invitation'));
+      
+      let displayMessage = '';
+      if (isVideoCall) {
+          displayMessage = isSender 
+              ? `You invited ${otherUser.username} to a video call`
+              : `${otherUser.username} invited you to a video call`;
+      } else {
+          displayMessage = isSender 
+              ? `You sent a message to ${otherUser.username}`
+              : `${otherUser.username} sent you a message`;
+      }
       
       feedItems.push({
         id: message._id,
-        type: 'message',
+        type: isVideoCall ? 'video_call' : 'message',
         user: {
           username: otherUser.username,
-          profile_pic: otherUser.profilePicture
+          profile_pic: otherUser.profile_pic
         },
-        message: isReceived 
-          ? `${otherUser.username} sent you a message`
-          : `You sent a message to ${otherUser.username}`,
-        timestamp: message.createdAt
+        message: displayMessage,
+        timestamp: message.created
       });
     });
 

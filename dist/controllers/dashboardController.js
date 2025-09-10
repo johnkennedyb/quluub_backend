@@ -1,6 +1,6 @@
 const Relationship = require('../models/Relationship');
 const User = require('../models/User');
-const Message = require('../models/Message');
+const Chat = require('../models/Chat');
 const Call = require('../models/Call');
 
 // Helper function to generate activity feed items
@@ -8,21 +8,21 @@ const generateActivityFeed = async (userId) => {
     try {
         const feedItems = [];
         
-        // Get recent messages (last 24 hours)
-        const recentMessages = await Message.find({
-            $or: [{ sender: userId }, { receiver: userId }],
-            createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+        // Get recent messages (last 7 days)
+        const recentMessages = await Chat.find({
+            $or: [{ senderId: userId }, { receiverId: userId }],
+            created: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }
         })
-        .populate('sender', 'fname lname username')
-        .populate('receiver', 'fname lname username')
-        .sort({ createdAt: -1 })
+        .populate('senderId', 'fname lname username')
+        .populate('receiverId', 'fname lname username')
+        .sort({ created: -1 })
         .limit(10)
         .lean();
 
-        // Get recent video calls (last 24 hours)
+        // Get recent video calls (last 7 days)
         const recentCalls = await Call.find({
             $or: [{ caller: userId }, { recipient: userId }],
-            createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+            createdAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) }
         })
         .populate('caller', 'fname lname username')
         .populate('recipient', 'fname lname username')
@@ -32,8 +32,8 @@ const generateActivityFeed = async (userId) => {
 
         // Process messages into feed items
         recentMessages.forEach(message => {
-            const isReceived = message.receiver._id.toString() === userId;
-            const otherUser = isReceived ? message.sender : message.receiver;
+            const isReceived = message.receiverId._id.toString() === userId;
+            const otherUser = isReceived ? message.senderId : message.receiverId;
             
             if (message.messageType === 'video_call_invitation') {
                 feedItems.push({
@@ -46,7 +46,7 @@ const generateActivityFeed = async (userId) => {
                     message: isReceived 
                         ? `${otherUser.fname} ${otherUser.lname} invited you to a video call`
                         : `You invited ${otherUser.fname} ${otherUser.lname} to a video call`,
-                    timestamp: message.createdAt,
+                    timestamp: message.created,
                     videoCallData: message.videoCallData
                 });
             } else {
@@ -60,7 +60,7 @@ const generateActivityFeed = async (userId) => {
                     message: isReceived 
                         ? `${otherUser.fname} ${otherUser.lname} sent you a message`
                         : `You sent a message to ${otherUser.fname} ${otherUser.lname}`,
-                    timestamp: message.createdAt
+                    timestamp: message.created
                 });
             }
         });
