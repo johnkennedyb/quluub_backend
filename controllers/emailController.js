@@ -379,17 +379,25 @@ exports.sendPasswordResetEmail = async (req, res) => {
 // @access  Public
 exports.resetPassword = async (req, res) => {
   try {
+    console.log('🔄 Reset password request received');
+    console.log('📦 Request body:', JSON.stringify(req.body, null, 2));
+    
     const { token, newPassword } = req.body;
     
+    console.log('🔑 Token received:', token ? `${token.substring(0, 8)}...` : 'NO TOKEN');
+    console.log('🔒 Password received:', newPassword ? `${newPassword.length} characters` : 'NO PASSWORD');
+    
     if (!token || !newPassword) {
+      console.log('❌ Missing required fields - token:', !!token, 'newPassword:', !!newPassword);
       return res.status(400).json({ message: 'Token and new password are required' });
     }
     
     if (newPassword.length < 6) {
+      console.log('❌ Password too short:', newPassword.length, 'characters');
       return res.status(400).json({ message: 'Password must be at least 6 characters long' });
     }
     
-    console.log('Resetting password with token:', token.substring(0, 8) + '...');
+    console.log('🔍 Searching for user with reset token...');
     
     // Find user with this reset token
     const user = await User.findOne({
@@ -398,15 +406,32 @@ exports.resetPassword = async (req, res) => {
     });
     
     if (!user) {
+      console.log('❌ No user found with valid reset token');
+      
+      // Check if token exists but is expired
+      const expiredUser = await User.findOne({ resetPasswordToken: token });
+      if (expiredUser) {
+        console.log('⏰ Token exists but is expired for user:', expiredUser.email);
+        console.log('⏰ Token expiration:', expiredUser.resetPasswordTokenExpiration);
+        console.log('⏰ Current time:', new Date());
+      } else {
+        console.log('🔍 Token not found in database at all');
+      }
+      
       return res.status(400).json({ 
         message: 'Invalid or expired reset token' 
       });
     }
     
+    console.log('✅ User found:', user.email);
+    console.log('⏰ Token expiration:', user.resetPasswordTokenExpiration);
+    
     // Hash the new password before saving
     const bcrypt = require('bcryptjs');
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(newPassword, salt);
+    
+    console.log('🔒 Password hashed successfully');
     
     // Update password
     user.password = hashedPassword;
@@ -414,13 +439,13 @@ exports.resetPassword = async (req, res) => {
     user.resetPasswordTokenExpiration = null;
     await user.save();
     
-    console.log('Password reset successfully for user:', user.email);
+    console.log('✅ Password reset successfully for user:', user.email);
     res.json({ 
       message: 'Password reset successfully'
     });
     
   } catch (error) {
-    console.error('Error resetting password:', error);
+    console.error('❌ Error resetting password:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 };
