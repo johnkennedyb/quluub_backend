@@ -246,42 +246,48 @@ const login = async (req, res) => {
       $or: [{ username }, { email: username }]
     });
 
-    if (user && (await bcrypt.compare(password, user.password))) {
-      const token = generateToken(user._id);
-      
-      console.log(`✅ Login successful for: ${username} (Type: ${user.type})`);
-      
-      // ✅ PERFORMANCE FIX: Respond to the user immediately.
-      // Don't make the user wait for the 'lastSeen' update.
-      res.json({
-        _id: user._id,
-        username: user.username,
-        email: user.email,
-        fname: user.fname,
-        lname: user.lname,
-        gender: user.gender,
-        type: user.type,
-        token,
-        user: {
-          _id: user._id,
-          username: user.username,
-          email: user.email,
-          fname: user.fname,
-          lname: user.lname,
-          gender: user.gender,
-          type: user.type
-        }
-      });
+    if (user && (await bcrypt.compare(password, user.password))) {
+      const token = generateToken(user._id);
+      
+      console.log(`✅ Login successful for: ${username} (Type: ${user.type})`);
+      
+      // ✅ PERFORMANCE FIX: Respond to the user immediately with all profile data
+      // Include profile completeness fields: dob, country, city, ethnicity
+      res.json({
+        _id: user._id,
+        username: user.username,
+        email: user.email,
+        fname: user.fname,
+        lname: user.lname,
+        gender: user.gender,
+        type: user.type,
+        dob: user.dob,
+        country: user.country,
+        city: user.city,
+        ethnicity: user.ethnicity,
+        token,
+        user: {
+          _id: user._id,
+          username: user.username,
+          email: user.email,
+          fname: user.fname,
+          lname: user.lname,
+          gender: user.gender,
+          type: user.type,
+          dob: user.dob,
+          country: user.country,
+          city: user.city,
+          ethnicity: user.ethnicity
+        }
+      });
 
-      // 🔥 FIRE AND FORGET: Update lastSeen in the background.
-      // We don't use 'await' here, so the function continues without waiting.
-      user.lastSeen = new Date();
-      user.save().catch(err => {
-        // Log any errors that occur during the background save.
-        console.error('Error updating lastSeen in background:', err);
-      });
+      // 🔥 FIRE AND FORGET: Update lastSeen in the background.
+      user.lastSeen = new Date();
+      user.save().catch(err => {
+        console.error('Error updating lastSeen in background:', err);
+      });
 
-     } else {
+     } else {
       console.log(`❌ Login failed for: ${username}`);
       
       // Check if user exists to provide more specific error

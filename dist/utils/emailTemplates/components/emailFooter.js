@@ -12,7 +12,7 @@ const createEmailFooter = () => {
         class="footer"
         style="padding: 0; background: #f5f5f5; width: 100%;"
       >
-        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="width: 100%; background-image: url('https://res.cloudinary.com/djx3ijal6/image/upload/v1756137463/Copy_of_Quluub_Email_Header_1_cocsqj.png'); background-size: cover; background-position: center; background-repeat: no-repeat; min-height: 160px;">
+        <table width="100%" cellpadding="0" cellspacing="0" border="0" style="width: 100%; background-image: url('https://res.cloudinary.com/djx3ijal6/image/upload/v1756137463/Copy_of_Quluub_Email_Header_1_cocsqj.png'); background-size: cover; background-position: center; background-repeat: no-repeat; min-height: 160px; display: block;">
           <tr>
             <td align="center" valign="middle" style="padding: 25px 20px; width: 100%;">
               <p style="margin: 0 0 15px 0; font-size: 12px; line-height: 18px; color: #333333; font-family: Arial, sans-serif; text-align: center;">
