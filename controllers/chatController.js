@@ -525,13 +525,10 @@ const addChat = async (req, res) => {
         });
       }
       
-      // Broadcast to recipient's socket room
+      // SINGLE MESSAGE BROADCAST - Only emit to recipient's room to prevent duplicates
       io.to(contact._id.toString()).emit('new_message', messageData);
       
-      // Also broadcast to conversation room if users are in it
-      io.to(messageData.conversationId).emit('new_message', messageData);
-      
-      // Emit for activity feed notification
+      // Activity feed notifications (separate from chat messages)
       // Build recipient-side activity feed notification
       const recipientNotification = {
         senderId: userInfo._id,

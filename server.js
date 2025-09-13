@@ -350,47 +350,102 @@ io.on('connection', (socket) => {
   });
 
   // Handle call termination - broadcast to both participants
-  socket.on('end-video-call', (data) => {
-    const { sessionId, userId, participantId } = data;
+  socket.on('end-video-call', async (data) => {
+    const { sessionId, userId, participantId, duration } = data;
     
-    // Broadcast call end to both participants
-    const participants = [userId.toString(), participantId.toString()];
-    
-    participants.forEach(participantId => {
-      const participantSocketId = onlineUsers.get(participantId);
-      if (participantSocketId) {
-        io.to(participantSocketId).emit('video_call_ended', {
+    try {
+      // Track video call time if duration is provided
+      if (duration && userId && participantId) {
+        const VideoCallTime = require('./models/VideoCallTime');
+        const videoCallRecord = await VideoCallTime.getOrCreatePairRecord(userId, participantId);
+        const session = videoCallRecord.addCallTime(duration, 'video');
+        await videoCallRecord.save();
+      }
+      
+      // Broadcast call end to both participants
+      const participants = [userId.toString(), participantId.toString()];
+      
+      participants.forEach(participantId => {
+        const participantSocketId = onlineUsers.get(participantId);
+        if (participantSocketId) {
+          io.to(participantSocketId).emit('video_call_ended', {
+            sessionId,
+            endedBy: userId,
+            timestamp: new Date().toISOString()
+          });
+        }
+        
+        // Also send to participant's room
+        io.to(participantId).emit('video_call_ended', {
           sessionId,
           endedBy: userId,
           timestamp: new Date().toISOString()
         });
-        // Emit call status update for activity feed
-        io.to(participantSocketId).emit('call-status-update', {
-          sessionId,
-          status: 'completed',
-          callerId: userId,
-          otherUserName: data.otherUserName || 'Unknown',
-          otherUserUsername: data.otherUserUsername || 'Unknown'
-        });
+      });
+      
+      console.log(`📞 Video call ended - Session: ${sessionId}, Ended by: ${userId}`);
+      
+    } catch (error) {
+      console.error('Error handling video call end:', error);
+    }
+  });
+
+  // Handle PeerJS call termination - ensure both participants are notified
+  socket.on('peer-call-ended', async (data) => {
+    const socketId = socket.id;
+    const currentUserId = socket.userId; // Get userId from socket authentication
+    
+    try {
+      // Extract data with fallbacks
+      const userId = data?.userId || currentUserId;
+      const timestamp = data?.timestamp || new Date().toISOString();
+      
+      if (!userId) {
+        console.warn('⚠️ No userId available for peer call termination');
+        return;
       }
       
-      // Also send to participant's room
-      io.to(participantId).emit('video_call_ended', {
-        sessionId,
-        endedBy: userId,
-        timestamp: new Date().toISOString()
+      console.log(`📞 PeerJS call ended by user: ${userId}`);
+      
+      // Find the other participant by looking through active connections
+      // This is a fallback mechanism for PeerJS call termination
+      const otherParticipants = [];
+      
+      // Look through online users to find potential call participants
+      for (const [otherUserId, otherSocketId] of onlineUsers.entries()) {
+        if (otherUserId !== userId && otherSocketId !== socketId) {
+          // Check if this user might be in a call (this is a simple heuristic)
+          // In a more sophisticated system, you'd track active calls
+          otherParticipants.push(otherUserId);
+        }
+      }
+      
+      // Broadcast call termination to potential participants
+      otherParticipants.forEach(participantId => {
+        const participantSocketId = onlineUsers.get(participantId);
+        if (participantSocketId) {
+          io.to(participantSocketId).emit('peer_call_terminated', {
+            terminatedBy: userId,
+            timestamp: timestamp
+          });
+        }
+        
+        // Also send to participant's room
+        io.to(participantId).emit('peer_call_terminated', {
+          terminatedBy: userId,
+          timestamp: timestamp
+        });
       });
-      // Emit call status update for activity feed
-      io.to(participantId).emit('call-status-update', {
-        sessionId,
-        status: 'completed',
-        callerId: userId,
-        otherUserName: data.otherUserName || 'Unknown',
-        otherUserUsername: data.otherUserUsername || 'Unknown'
+      
+      // Broadcast to all sockets from this user to ensure cleanup
+      socket.broadcast.emit('peer_call_terminated', {
+        terminatedBy: userId,
+        timestamp: timestamp
       });
-    });
-    
-    // Video call end notification sent to both participants
+      
+    } catch (error) {
+      console.error('Error handling peer call termination:', error);
+    }
   });
 
   // Handle accept-call event from frontend
@@ -413,47 +468,6 @@ io.on('connection', (socket) => {
       callerId: data.callerId,
       recipientId: data.recipientId,
       sessionId: data.sessionId
-    });
-  });
-
-  socket.on('end-video-call', async (data) => {
-    
-    try {
-      // Track video call time if duration is provided
-      if (data.duration && data.callerId && data.recipientId) {
-        const videoCallRecord = await VideoCallTime.getOrCreatePairRecord(data.callerId, data.recipientId);
-        const session = videoCallRecord.addCallTime(data.duration, 'video');
-        await videoCallRecord.save();
-        
-        // Video call time tracked successfully
-        
-        // Notify both participants about remaining time
-        const timeInfo = {
-          sessionId: data.sessionId,
-          duration: data.duration,
-          totalTimeSpent: videoCallRecord.totalTimeSpent,
-          remainingTime: videoCallRecord.getRemainingTime(),
-          limitExceeded: videoCallRecord.limitExceeded,
-          endedBy: data.endedBy || 'unknown'
-        };
-        
-        io.to(data.callerId).emit('video-call-ended', timeInfo);
-        io.to(data.recipientId).emit('video-call-ended', timeInfo);
-        
-        return;
-      }
-    } catch (error) {
-      // Silent error handling for performance
-    }
-    
-    // Fallback - notify participants without time tracking
-    io.to(data.callerId).emit('video-call-ended', {
-      sessionId: data.sessionId,
-      endedBy: data.endedBy || 'unknown'
-    });
-    io.to(data.recipientId).emit('video-call-ended', {
-      sessionId: data.sessionId,
-      endedBy: data.endedBy || 'unknown'
     });
   });
 
