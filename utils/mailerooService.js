@@ -1,7 +1,7 @@
 const axios = require('axios');
 
 // Maileroo API configuration
-const MAILEROO_API_KEY = 'fdfbe57cf3c414c1d6d5959b948aee7794ab8d742ef6be681ef15bbf78dd201b';
+const MAILEROO_API_KEY = 'adfdb8d27860fc0cb06b4962fcd75ee1ffc73e1ba6a6320f2db7f0fd1775e900';
 const MAILEROO_API_URL = 'https://smtp.maileroo.com/api/v2/emails';
 
 /**
@@ -12,7 +12,7 @@ const MAILEROO_API_URL = 'https://smtp.maileroo.com/api/v2/emails';
  * @param {string} from - Sender email (optional)
  * @returns {Promise<boolean>} - Success status
  */
-const sendEmailViaAPI = async (to, subject, html, from = 'mail@quluub.com') => {
+const sendEmailViaAPI = async (to, subject, html, from = 'mail@match.quluub.com') => {
   try {
     console.log(`Sending email via Maileroo API to: ${to}`);
     
