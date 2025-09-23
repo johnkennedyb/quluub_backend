@@ -3,7 +3,6 @@ const UserActivityLog = require('../models/UserActivityLog');
 const bcrypt = require('bcryptjs');
 const path = require('path');
 const mongoose = require('mongoose');
-const LRUCache = require('lru-cache');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { sendWaliAddedNotificationEmail, sendProfileViewEmail, sendEncourageUnhideEmail } = require('../utils/emailService');
