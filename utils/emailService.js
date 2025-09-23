@@ -19,7 +19,6 @@ const contactWaliEmailTemplate = require('./emailTemplates/contactWali');
 const waliViewChatEmailTemplate = require('./emailTemplates/waliViewChat');
 const validateEmailTemplate = require('./emailTemplates/validateEmail');
 const videoCallNotificationEmailTemplate = require('./emailTemplates/videoCallNotification');
-const testEmailTemplate = require('./emailTemplates/testEmail');
 
 // Email configuration for API-only service
 console.log('Loading Maileroo API email configuration...');

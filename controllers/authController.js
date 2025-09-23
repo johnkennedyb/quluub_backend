@@ -253,6 +253,7 @@ const login = async (req, res) => {
       
       // ✅ PERFORMANCE FIX: Respond to the user immediately with all profile data
       // Include profile completeness fields: dob, country, city, ethnicity
+      // Include payment status fields: plan, premiumExpirationDate
       res.json({
         _id: user._id,
         username: user.username,
@@ -265,6 +266,8 @@ const login = async (req, res) => {
         country: user.country,
         city: user.city,
         ethnicity: user.ethnicity,
+        plan: user.plan,
+        premiumExpirationDate: user.premiumExpirationDate,
         token,
         user: {
           _id: user._id,
@@ -277,7 +280,9 @@ const login = async (req, res) => {
           dob: user.dob,
           country: user.country,
           city: user.city,
-          ethnicity: user.ethnicity
+          ethnicity: user.ethnicity,
+          plan: user.plan,
+          premiumExpirationDate: user.premiumExpirationDate
         }
       });
 
@@ -366,95 +371,95 @@ const googleAuth = async (req, res) => {
       return res.status(400).json({ message: 'Failed to get user information from Google' });
     }
 
-    let user = await User.findOne({ email: googleUser.email });
+    let user = await User.findOne({ email: googleUser.email });
 
-    if (user) {
-      // Update existing user
-      user.lastSeen = new Date();
-      if (!user.googleId) {
-        user.googleId = googleUser.id;
-      }
-      await user.save();
-      console.log('Google OAuth: Existing user signed in:', user.email);
-    } else {
-      // Create new user with default gender
-      const username = googleUser.email.split('@')[0] + Math.random().toString(36).substr(2, 4);
-      
-      user = new User({
-        fname: googleUser.given_name || googleUser.name?.split(' ')[0] || 'User',
-        lname: googleUser.family_name || googleUser.name?.split(' ').slice(1).join(' ') || '',
-        email: googleUser.email,
-        username,
-        googleId: googleUser.id,
-        password: crypto.randomBytes(32).toString('hex'), // Random password for Google users
-        emailVerified: googleUser.verified_email || true,
-        status: 'active',
-        plan: 'freemium',
-        gender: 'other', // Default gender for Google OAuth users
-        parentEmail: googleUser.email, // Use Google email as parent email
-        lastSeen: new Date(),
-        type: 'USER'
-      });
+    if (user) {
+      // Update existing user
+      user.lastSeen = new Date();
+      if (!user.googleId) {
+        user.googleId = googleUser.id;
+      }
+      await user.save();
+      console.log('Google OAuth: Existing user signed in:', user.email);
+    } else {
+      // Create new user with default gender
+      const username = googleUser.email.split('@')[0] + Math.random().toString(36).substr(2, 4);
+      
+      user = new User({
+        fname: googleUser.given_name || googleUser.name?.split(' ')[0] || 'User',
+        lname: googleUser.family_name || googleUser.name?.split(' ').slice(1).join(' ') || '',
+        email: googleUser.email,
+        username,
+        googleId: googleUser.id,
+        password: crypto.randomBytes(32).toString('hex'), // Random password for Google users
+        emailVerified: googleUser.verified_email || true,
+        status: 'active',
+        plan: 'freemium',
+        gender: 'other', // Default gender for Google OAuth users
+        parentEmail: googleUser.email, // Use Google email as parent email
+        lastSeen: new Date(),
+        type: 'USER'
+      });
 
-      await user.save();
-      console.log('Google OAuth: New user created:', user.email);
-    }
+      await user.save();
+      console.log('Google OAuth: New user created:', user.email);
+    }
 
-    const token = generateToken(user._id);
+    const token = generateToken(user._id);
 
-    res.json({
-      token,
-      user: {
-        _id: user._id,
-        id: user._id,
-        fname: user.fname,
-        lname: user.lname,
-        email: user.email,
-        username: user.username,
-        plan: user.plan,
-        status: user.status,
-        type: user.type,
-        gender: user.gender
-      }
-    });
-
-  } catch (error) {
-    console.error('Google OAuth error:', error);
-    res.status(500).json({ message: 'Server error during Google authentication' });
-  }
+    res.json({
+      token,
+      user: {
+        _id: user._id,
+        id: user._id,
+        fname: user.fname,
+        lname: user.lname,
+        email: user.email,
+        username: user.username,
+        plan: user.plan,
+        premiumExpirationDate: user.premiumExpirationDate,
+        status: user.status,
+        type: user.type,
+        gender: user.gender
+      }
+    });
+  } catch (error) {
+    console.error('Google OAuth error:', error);
+    res.status(500).json({ message: 'Server error during Google authentication' });
+  }
 };
 
 // Get user profile
 const getUserProfile = async (req, res) => {
-  try {
-    const user = await User.findById(req.user.id).select('-password');
-    if (user) {
-      res.json(user);
-    } else {
-      res.status(404).json({ message: 'User not found' });
-    }
-  } catch (error) {
-    console.error('Get profile error:', error);
-    res.status(500).json({ message: 'Server error' });
-  }
+  try {
+    const user = await User.findById(req.user._id).select('-password');
+    if (user) {
+      res.json(user);
+    } else {
+      res.status(404).json({ message: 'User not found' });
+    }
+  } catch (error) {
+    console.error('Get profile error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
 };
 
 // Get all users
 const getAllUsers = async (req, res) => {
-  try {
-    const users = await User.find({}).select('-password');
-    res.json(users);
-  } catch (error) {
-    console.error('Get all users error:', error);
-    res.status(500).json({ message: 'Server error' });
-  }
+  try {
+    const users = await User.find({}).select('-password');
+    res.json(users);
+  } catch (error) {
+    console.error('Get all users error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
 };
 
 // Change password
 const changePassword = async (req, res) => {
   try {
-    const { currentPassword, newPassword } = req.body;
-    const user = await User.findById(req.user.id);
+    const { currentPassword, newPassword } = req.body;
+    const user = await User.findById(req.user._id);
 
     if (!user) {
       return res.status(404).json({ message: 'User not found' });

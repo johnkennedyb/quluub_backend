@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { upload, uploadVideoRecording, downloadVideoRecording } = require('../controllers/videoRecordingController');
-const { protect } = require('../middlewares/auth');
+const { protect } = require('../middlewares/authMiddleware');
 
 // @desc    Upload video recording and send to Wali
 // @route   POST /api/video-recording/upload

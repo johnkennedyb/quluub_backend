@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { getCombinedDashboardData, pingDatabase, getUserSettings } = require('../controllers/dashboardController');
 const { getDashboardStats } = require('../controllers/dashboardStatsController');
-const { protect } = require('../middlewares/auth');
+const { protect } = require('../middlewares/authMiddleware');
 
 // @route   GET /api/dashboard/combined
 // @desc    Get all dashboard data in a single call

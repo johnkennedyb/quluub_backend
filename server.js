@@ -26,6 +26,7 @@ const cors = require('cors');
 const mongoose = require('mongoose');
 const User = require('./models/User');
 const VideoCallTime = require('./models/VideoCallTime');
+const compression = require('compression');
 const { trackRequestPerformance, performanceEndpoint, healthCheckEndpoint } = require('./middlewares/performanceMonitor');
 const { createIndexes } = require('./config/indexes');
 const { startScheduler } = require('./utils/emailScheduler');
@@ -40,7 +41,7 @@ const app = express();
 const server = http.createServer(app);
 
 const peerServer = ExpressPeerServer(server, {
-  debug: true,
+  debug: process.env.NODE_ENV !== 'production',
   path: '/',
   allow_discovery: true,
   proxied: true,
@@ -71,26 +72,8 @@ app.use('/peerjs', peerServer);
 const corsOptions = {
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    const allowedOrigins = [
-      process.env.FRONTEND_URL,
-      process.env.CLIENT_URL,
-      'http://localhost:8080',
-      'http://localhost:5173',
-      'https://preview--quluub-reborn-project-99.lovable.app',
-      'https://love.quluub.com',
-      'https://match.quluub.com',
-      'https://quluub-reborn-project-33.vercel.app'
-    ].filter(Boolean);
-    
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      console.log(`🚫 CORS blocked origin: ${origin}`);
-      console.log(`✅ Allowed origins: ${allowedOrigins.join(', ')}`);
-      callback(null, true); // Allow all origins in production for now
-    }
+    // Allow all origins for maximum compatibility
+    callback(null, true);
   },
   methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
@@ -100,13 +83,10 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
+// Enable HTTP compression for faster API responses
+app.use(compression({ level: 6 }));
 app.use(express.json());
 
-// Performance monitoring disabled for production speed
-// if (process.env.ENABLE_PERFORMANCE_LOGGING === 'true') {
-//   app.use(trackRequestPerformance);
-//   console.log('📈 Performance monitoring enabled');
-// }
 
 // OPTIMIZED SOCKET.IO CONFIGURATION FOR PRODUCTION
 const io = new Server(server, {
@@ -150,15 +130,6 @@ app.set('onlineUsers', onlineUsers);
 // Create WebRTC namespace for video call functionality
 const webrtcNamespace = io.of('/webrtc');
 
-// Socket.IO authentication middleware for main namespace
-io.use(async (socket, next) => {
-  const userId = socket.handshake.query.userId;
-  if (!userId) {
-    return next(new Error('Authentication error: userId is required'));
-  }
-  socket.userId = userId;
-  next();
-});
 
 // Socket.IO authentication middleware for WebRTC namespace
 webrtcNamespace.use(async (socket, next) => {
@@ -390,63 +361,6 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Handle PeerJS call termination - ensure both participants are notified
-  socket.on('peer-call-ended', async (data) => {
-    const socketId = socket.id;
-    const currentUserId = socket.userId; // Get userId from socket authentication
-    
-    try {
-      // Extract data with fallbacks
-      const userId = data?.userId || currentUserId;
-      const timestamp = data?.timestamp || new Date().toISOString();
-      
-      if (!userId) {
-        console.warn('⚠️ No userId available for peer call termination');
-        return;
-      }
-      
-      console.log(`📞 PeerJS call ended by user: ${userId}`);
-      
-      // Find the other participant by looking through active connections
-      // This is a fallback mechanism for PeerJS call termination
-      const otherParticipants = [];
-      
-      // Look through online users to find potential call participants
-      for (const [otherUserId, otherSocketId] of onlineUsers.entries()) {
-        if (otherUserId !== userId && otherSocketId !== socketId) {
-          // Check if this user might be in a call (this is a simple heuristic)
-          // In a more sophisticated system, you'd track active calls
-          otherParticipants.push(otherUserId);
-        }
-      }
-      
-      // Broadcast call termination to potential participants
-      otherParticipants.forEach(participantId => {
-        const participantSocketId = onlineUsers.get(participantId);
-        if (participantSocketId) {
-          io.to(participantSocketId).emit('peer_call_terminated', {
-            terminatedBy: userId,
-            timestamp: timestamp
-          });
-        }
-        
-        // Also send to participant's room
-        io.to(participantId).emit('peer_call_terminated', {
-          terminatedBy: userId,
-          timestamp: timestamp
-        });
-      });
-      
-      // Broadcast to all sockets from this user to ensure cleanup
-      socket.broadcast.emit('peer_call_terminated', {
-        terminatedBy: userId,
-        timestamp: timestamp
-      });
-      
-    } catch (error) {
-      console.error('Error handling peer call termination:', error);
-    }
-  });
 
   // Handle accept-call event from frontend
   socket.on('accept-call', (data) => {
@@ -473,14 +387,16 @@ io.on('connection', (socket) => {
 
 
   socket.on('disconnect', () => {
-    // Remove from online users
-    for (let [userId, socketId] of onlineUsers.entries()) {
-      if (socketId === socket.id) {
-        onlineUsers.delete(userId);
-        break;
-      }
+    // Find the user associated with the disconnected socket
+    const userId = [...onlineUsers.entries()]
+      .find(([key, value]) => value === socket.id)?.[0];
+
+    // If a user is found, remove them from the online users map
+    if (userId) {
+      onlineUsers.delete(userId);
+      // Broadcast the updated list of online users to all clients
+      io.emit('getOnlineUsers', Array.from(onlineUsers.keys()));
     }
-    io.emit('getOnlineUsers', Array.from(onlineUsers.keys()));
   });
 });
 

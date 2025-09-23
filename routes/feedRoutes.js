@@ -3,7 +3,7 @@ const {
   getFeed,
   markFeedItemRead
 } = require('../controllers/feedController');
-const { protect } = require('../middlewares/auth');
+const { protect } = require('../middlewares/authMiddleware');
 
 const router = express.Router();
 

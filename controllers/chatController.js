@@ -528,39 +528,6 @@ const addChat = async (req, res) => {
       // SINGLE MESSAGE BROADCAST - Only emit to recipient's room to prevent duplicates
       io.to(contact._id.toString()).emit('new_message', messageData);
       
-      // Activity feed notifications (separate from chat messages)
-      // Build recipient-side activity feed notification
-      const recipientNotification = {
-        senderId: userInfo._id,
-        senderName: `${currentUser.fname} ${currentUser.lname}`,
-        senderUsername: currentUser.username,
-        recipientId: contact._id,
-        recipientName: `${contact.fname} ${contact.lname}`,
-        recipientUsername: contact.username,
-        isSender: false,
-        messageType: messageType || 'text',
-        timestamp: new Date().toISOString()
-      };
-
-      console.log('📢 Emitting newMessage to RECIPIENT room:', contact._id.toString(), 'Payload:', JSON.stringify(recipientNotification, null, 2));
-      io.to(contact._id.toString()).emit('newMessage', recipientNotification);
-
-      // Also emit sender-side activity feed notification so they see immediate feedback
-      const senderNotification = {
-        senderId: userInfo._id,
-        senderName: `${currentUser.fname} ${currentUser.lname}`,
-        senderUsername: currentUser.username,
-        recipientId: contact._id,
-        recipientName: `${contact.fname} ${contact.lname}`,
-        recipientUsername: contact.username,
-        isSender: true,
-        messageType: messageType || 'text',
-        timestamp: new Date().toISOString()
-      };
-
-      console.log('📢 Emitting newMessage to SENDER room:', userInfo._id.toString(), 'Payload:', JSON.stringify(senderNotification, null, 2));
-      io.to(userInfo._id.toString()).emit('newMessage', senderNotification);
-      
       console.log('✅ Message broadcasted successfully');
     } else {
       console.warn('⚠️ Socket.io not available for broadcasting');

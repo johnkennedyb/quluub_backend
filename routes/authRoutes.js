@@ -9,7 +9,7 @@ const {
   googleAuth,
   resendValidationEmail
 } = require('../controllers/authController');
-const { protect } = require('../middlewares/auth');
+const { protect } = require('../middlewares/authMiddleware');
 
 const router = express.Router();
 
