@@ -49,6 +49,7 @@ const peerServer = ExpressPeerServer(server, {
     origin: [
       'https://quluub-reborn-project-33.vercel.app',
       'http://localhost:8080',
+      'http://localhost:5173',
       'https://preview--quluub-reborn-project-99.lovable.app',
       'https://love.quluub.com',
       'https://match.quluub.com', // Added production frontend
