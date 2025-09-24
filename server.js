@@ -410,6 +410,94 @@ webrtcNamespace.on('connection', (socket) => {
     webrtcUsers.set(authenticatedUserId, socket.id);
   });
 
+  // Handle video call invitation emitted from the /webrtc namespace
+  socket.on('send-video-call-invitation', async (data) => {
+    const recipientId = data.recipientId.toString();
+    const callerId = data.callerId.toString();
+    let videoCallRecord = null;
+    let remainingTime = 300; // Default 5 minutes
+
+    try {
+      // Validate 5-minute video call limit
+      videoCallRecord = await VideoCallTime.getOrCreatePairRecord(callerId, recipientId);
+      if (!videoCallRecord.canMakeVideoCall()) {
+        const rejectionMessage = {
+          type: 'video_call_rejected',
+          reason: 'time_limit_exceeded',
+          message: 'Video call time limit (5 minutes) exceeded for this match. No more video calls allowed.',
+          remainingTime: 0,
+          limitExceeded: true,
+          sessionId: data.sessionId
+        };
+        socket.emit('video_call_rejected', rejectionMessage);
+        return;
+      }
+      remainingTime = videoCallRecord.getRemainingTime();
+    } catch (error) {
+      // Continue with call invitation even if time check fails (fallback)
+    }
+
+    // Create standardized video call message
+    const videoCallMessage = {
+      senderId: callerId,
+      recipientId: recipientId,
+      message: `${data.callerName} is inviting you to a video call`,
+      messageType: 'video_call_invitation',
+      videoCallData: {
+        callerId: callerId,
+        callerName: data.callerName,
+        sessionId: data.sessionId,
+        timestamp: data.timestamp,
+        status: 'pending',
+        remainingTime: remainingTime
+      },
+      createdAt: new Date().toISOString()
+    };
+
+    // Deliver via main namespace to ensure app-level listeners receive it
+    const recipientSocketId = onlineUsers.get(recipientId);
+    let notificationSent = false;
+
+    if (recipientSocketId) {
+      try {
+        io.to(recipientSocketId).emit('video_call_invitation', videoCallMessage);
+        // Also emit for activity feed
+        io.to(recipientSocketId).emit('send-video-call-invitation', {
+          callerId: callerId,
+          callerName: data.callerName,
+          callerUsername: data.callerUsername,
+          sessionId: data.sessionId,
+          timestamp: data.timestamp
+        });
+        notificationSent = true;
+      } catch (error) {
+        // Silent error handling
+      }
+    }
+
+    // Also send to recipient's room as backup (main namespace)
+    try {
+      io.to(recipientId).emit('video_call_invitation', videoCallMessage);
+      // Also emit for activity feed
+      io.to(recipientId).emit('send-video-call-invitation', {
+        callerId: callerId,
+        callerName: data.callerName,
+        callerUsername: data.callerUsername,
+        sessionId: data.sessionId,
+        timestamp: data.timestamp
+      });
+      notificationSent = true;
+    } catch (error) {
+      // Silent error handling
+    }
+
+    // Send result back to caller (webrtc namespace)
+    socket.emit('video-call-invitation-result', {
+      success: notificationSent,
+      recipientOnline: !!recipientSocketId
+    });
+  });
+
   // WebRTC Signaling Handlers
   socket.on('video-call-offer', (data) => {
     
