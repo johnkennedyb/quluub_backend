@@ -60,12 +60,20 @@ const peerServer = ExpressPeerServer(server, {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    // TURN servers for users behind NAT/firewalls
     {
-      urls: process.env.TURN_URL,
-      username: process.env.TURN_USERNAME,
-      credential: process.env.TURN_PASSWORD,
+      urls: 'turn:relay1.expressturn.com:3478',
+      username: 'efJBIBF0YIPZ8USRBH',
+      credential: 'T4rSq09kikgUFfWdmhGZc1XrMq',
     },
-  ].filter(s => s.urls), // Filter out TURN server if not configured
+    {
+      urls: 'turn:relay1.expressturn.com:3478?transport=tcp',
+      username: 'efJBIBF0YIPZ8USRBH',
+      credential: 'T4rSq09kikgUFfWdmhGZc1XrMq',
+    },
+  ]
 });
 
 app.use('/peerjs', peerServer);
