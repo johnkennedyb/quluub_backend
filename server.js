@@ -169,8 +169,22 @@ webrtcNamespace.use(async (socket, next) => {
 
 // Main namespace connection (for general app functionality)
 io.on('connection', (socket) => {
+  console.log('🔌 New socket connection:', socket.id);
+  
+  // Auto-join user if userId is provided in query
+  const userId = socket.handshake.query?.userId;
+  if (userId) {
+    console.log('🔌 Auto-joining user from query:', userId);
+    socket.join(userId.toString());
+    socket.userId = userId.toString();
+    onlineUsers.set(userId.toString(), socket.id);
+    io.emit('getOnlineUsers', Array.from(onlineUsers.keys()));
+  }
+  
   socket.on('join', (userId) => {
+    console.log('🔌 Manual join for user:', userId);
     socket.join(userId);
+    socket.userId = userId.toString();
     onlineUsers.set(userId.toString(), socket.id);
     // Throttle online users broadcast for performance
     if (onlineUsers.size % 10 === 0) {
@@ -239,11 +253,36 @@ io.on('connection', (socket) => {
       createdAt: new Date().toISOString()
     };
 
-    // Single reliable notification - direct to recipient
+    // Enhanced recipient detection with multiple checks
     const recipientSocketId = onlineUsers.get(recipientId);
+    
+    // Check room membership as additional verification
+    const recipientRoom = io?.sockets?.adapter?.rooms?.get(recipientId);
+    const roomHasUsers = recipientRoom && recipientRoom.size > 0;
+    
+    // Check all connected sockets for this user
+    let hasConnectedSocket = false;
+    if (io && io.sockets && io.sockets.sockets) {
+      for (const [socketId, socket] of io.sockets.sockets) {
+        if (socket.userId === recipientId || socket.handshake?.query?.userId === recipientId) {
+          hasConnectedSocket = true;
+          break;
+        }
+      }
+    }
+    
+    const recipientOnlineStatus = !!recipientSocketId || roomHasUsers || hasConnectedSocket;
     let notificationSent = false;
     
-    console.log('📞 BACKEND DEBUG: Recipient socket lookup:', { recipientId, recipientSocketId, onlineUsersSize: onlineUsers.size });
+    console.log('📞 BACKEND DEBUG: Enhanced recipient lookup:', { 
+      recipientId, 
+      recipientSocketId: !!recipientSocketId, 
+      roomHasUsers,
+      hasConnectedSocket,
+      recipientOnlineStatus,
+      onlineUsersSize: onlineUsers.size,
+      totalSockets: io?.sockets?.sockets?.size || 0
+    });
     
     if (recipientSocketId) {
       try {
@@ -304,10 +343,10 @@ io.on('connection', (socket) => {
       console.error('📞 BACKEND DEBUG: Error emitting broadcast:', error);
     }
 
-    // Send result back to caller
+    // Send result back to caller with enhanced online status
     socket.emit('video-call-invitation-result', {
       success: notificationSent,
-      recipientOnline: !!recipientSocketId
+      recipientOnline: recipientOnlineStatus
     });
 
     // Removed verbose logging for performance
@@ -426,12 +465,19 @@ io.on('connection', (socket) => {
 
 
   socket.on('disconnect', () => {
+    console.log('🔌 Socket disconnecting:', socket.id);
+    
     // Find the user associated with the disconnected socket
-    const userId = [...onlineUsers.entries()]
-      .find(([key, value]) => value === socket.id)?.[0];
+    let userId = socket.userId; // Try stored userId first
+    if (!userId) {
+      // Fallback: search through onlineUsers map
+      userId = [...onlineUsers.entries()]
+        .find(([key, value]) => value === socket.id)?.[0];
+    }
 
     // If a user is found, remove them from the online users map
     if (userId) {
+      console.log('🔌 Removing user from online list:', userId);
       onlineUsers.delete(userId);
       // Broadcast the updated list of online users to all clients
       io.emit('getOnlineUsers', Array.from(onlineUsers.keys()));
@@ -654,6 +700,19 @@ webrtcNamespace.on('connection', (socket) => {
 
 app.get('/', (req, res) => {
   res.send('API is running...');
+});
+
+// Debug endpoint to check online users
+app.get('/api/debug/online-users', (req, res) => {
+  const onlineUsersArray = Array.from(onlineUsers.entries());
+  const totalSockets = io?.sockets?.sockets?.size || 0;
+  
+  res.json({
+    onlineUsers: onlineUsersArray,
+    totalOnlineUsers: onlineUsers.size,
+    totalConnectedSockets: totalSockets,
+    timestamp: new Date().toISOString()
+  });
 });
 
 // Health and performance monitoring endpoints

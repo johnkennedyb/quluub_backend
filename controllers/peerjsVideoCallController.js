@@ -71,12 +71,37 @@ exports.initiatePeerJSCall = asyncHandler(async (req, res) => {
     });
   }
 
-  // Try to send real-time notification if recipient is online
+  // Enhanced online user detection with multiple fallbacks
   const recipientKey = recipientId.toString();
   const recipientSocketId = onlineUsers.get(recipientKey);
-  // Also check room membership as a reliable backup for online detection
+  
+  // Check room membership as a reliable backup for online detection
   const recipientRoom = io?.sockets?.adapter?.rooms?.get(recipientKey);
-  const recipientOnlineComputed = !!recipientSocketId || (!!recipientRoom && recipientRoom.size > 0);
+  const roomHasUsers = recipientRoom && recipientRoom.size > 0;
+  
+  // Check if any socket is connected for this user (most reliable)
+  let hasConnectedSocket = false;
+  if (io && io.sockets && io.sockets.sockets) {
+    for (const [socketId, socket] of io.sockets.sockets) {
+      if (socket.userId === recipientKey || socket.handshake?.query?.userId === recipientKey) {
+        hasConnectedSocket = true;
+        break;
+      }
+    }
+  }
+  
+  // User is online if ANY of these conditions are true
+  const recipientOnlineComputed = !!recipientSocketId || roomHasUsers || hasConnectedSocket;
+  
+  console.log('📞 ONLINE CHECK DEBUG:', {
+    recipientId: recipientKey,
+    recipientSocketId: !!recipientSocketId,
+    roomHasUsers,
+    hasConnectedSocket,
+    recipientOnlineComputed,
+    totalOnlineUsers: onlineUsers.size,
+    totalConnectedSockets: io?.sockets?.sockets?.size || 0
+  });
 
   // Direct-to-socket delivery (fast path)
   if (recipientSocketId) {
