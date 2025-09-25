@@ -241,6 +241,7 @@ io.on('connection', (socket) => {
           callerId: callerId,
           callerName: data.callerName,
           callerUsername: data.callerUsername,
+          recipientId: recipientId,
           sessionId: data.sessionId,
           timestamp: data.timestamp
         });
@@ -258,10 +259,29 @@ io.on('connection', (socket) => {
         callerId: callerId,
         callerName: data.callerName,
         callerUsername: data.callerUsername,
+        recipientId: recipientId,
         sessionId: data.sessionId,
         timestamp: data.timestamp
       });
       notificationSent = true;
+    } catch (error) {
+      // Silent error handling
+    }
+
+    // LAYER 3: Broadcast fallback with client-side filtering
+    try {
+      io.emit('video_call_invitation_broadcast', {
+        // Top-level fields for easier client handling
+        callerId: callerId,
+        callerName: data.callerName,
+        callerUsername: data.callerUsername,
+        recipientId: recipientId,
+        sessionId: data.sessionId,
+        timestamp: data.timestamp,
+        // Original structured message for richer clients
+        ...videoCallMessage,
+        targetUserId: recipientId
+      });
     } catch (error) {
       // Silent error handling
     }
@@ -467,6 +487,7 @@ webrtcNamespace.on('connection', (socket) => {
           callerId: callerId,
           callerName: data.callerName,
           callerUsername: data.callerUsername,
+          recipientId: recipientId,
           sessionId: data.sessionId,
           timestamp: data.timestamp
         });
@@ -484,10 +505,29 @@ webrtcNamespace.on('connection', (socket) => {
         callerId: callerId,
         callerName: data.callerName,
         callerUsername: data.callerUsername,
+        recipientId: recipientId,
         sessionId: data.sessionId,
         timestamp: data.timestamp
       });
       notificationSent = true;
+    } catch (error) {
+      // Silent error handling
+    }
+
+    // LAYER 3: Broadcast fallback with client-side filtering
+    try {
+      io.emit('video_call_invitation_broadcast', {
+        // Top-level fields for easier client handling
+        callerId: callerId,
+        callerName: data.callerName,
+        callerUsername: data.callerUsername,
+        recipientId: recipientId,
+        sessionId: data.sessionId,
+        timestamp: data.timestamp,
+        // Original structured message for richer clients
+        ...videoCallMessage,
+        targetUserId: recipientId
+      });
     } catch (error) {
       // Silent error handling
     }
