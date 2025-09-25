@@ -181,9 +181,11 @@ io.on('connection', (socket) => {
 
   // VIDEO CALL NOTIFICATION SYSTEM
   socket.on('send-video-call-invitation', async (data) => {
+    console.log('📞 BACKEND DEBUG: Received video call invitation:', data);
     
     const recipientId = data.recipientId.toString();
     const callerId = data.callerId.toString();
+    console.log('📞 BACKEND DEBUG: Parsed IDs - Caller:', callerId, 'Recipient:', recipientId);
     let videoCallRecord = null;
     let remainingTime = 300; // Default 5 minutes
 
@@ -233,10 +235,14 @@ io.on('connection', (socket) => {
     const recipientSocketId = onlineUsers.get(recipientId);
     let notificationSent = false;
     
+    console.log('📞 BACKEND DEBUG: Recipient socket lookup:', { recipientId, recipientSocketId, onlineUsersSize: onlineUsers.size });
+    
     if (recipientSocketId) {
       try {
+        console.log('📞 BACKEND DEBUG: Emitting video_call_invitation to socket:', recipientSocketId);
         io.to(recipientSocketId).emit('video_call_invitation', videoCallMessage);
         // Also emit for activity feed
+        console.log('📞 BACKEND DEBUG: Emitting send-video-call-invitation to socket:', recipientSocketId);
         io.to(recipientSocketId).emit('send-video-call-invitation', {
           callerId: callerId,
           callerName: data.callerName,
@@ -247,12 +253,15 @@ io.on('connection', (socket) => {
         });
         notificationSent = true;
       } catch (error) {
-        // Silent error handling
+        console.error('📞 BACKEND DEBUG: Error emitting to direct socket:', error);
       }
+    } else {
+      console.log('📞 BACKEND DEBUG: Recipient not found in onlineUsers, trying room-based notification');
     }
 
     // Also send to recipient's room as backup
     try {
+      console.log('📞 BACKEND DEBUG: Emitting to recipient room:', recipientId);
       io.to(recipientId).emit('video_call_invitation', videoCallMessage);
       // Also emit for activity feed
       io.to(recipientId).emit('send-video-call-invitation', {
@@ -265,11 +274,12 @@ io.on('connection', (socket) => {
       });
       notificationSent = true;
     } catch (error) {
-      // Silent error handling
+      console.error('📞 BACKEND DEBUG: Error emitting to room:', error);
     }
 
     // LAYER 3: Broadcast fallback with client-side filtering
     try {
+      console.log('📞 BACKEND DEBUG: Emitting broadcast fallback');
       io.emit('video_call_invitation_broadcast', {
         // Top-level fields for easier client handling
         callerId: callerId,
@@ -283,7 +293,7 @@ io.on('connection', (socket) => {
         targetUserId: recipientId
       });
     } catch (error) {
-      // Silent error handling
+      console.error('📞 BACKEND DEBUG: Error emitting broadcast:', error);
     }
 
     // Send result back to caller
