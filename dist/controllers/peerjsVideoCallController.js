@@ -72,9 +72,21 @@ exports.initiatePeerJSCall = asyncHandler(async (req, res) => {
   }
 
   // Try to send real-time notification if recipient is online
-  const recipientSocketId = onlineUsers.get(recipientId.toString());
+  const recipientKey = recipientId.toString();
+  const recipientSocketId = onlineUsers.get(recipientKey);
+  // Also check room membership as a reliable backup for online detection
+  const recipientRoom = io?.sockets?.adapter?.rooms?.get(recipientKey);
+  const recipientOnlineComputed = !!recipientSocketId || (!!recipientRoom && recipientRoom.size > 0);
+
+  // Direct-to-socket delivery (fast path)
   if (recipientSocketId) {
     io.to(recipientSocketId).emit('video_call_invitation', callData);
+  }
+  // Room-based delivery (backup path)
+  try {
+    io.to(recipientKey).emit('video_call_invitation', callData);
+  } catch (err) {
+    // Silent fallback
   }
 
   // Clear any existing notifications for this session to prevent duplicates
@@ -88,6 +100,6 @@ exports.initiatePeerJSCall = asyncHandler(async (req, res) => {
   res.status(200).json({ 
     message: 'Call invitation sent successfully.', 
     callData,
-    recipientOnline: !!recipientSocketId
+    recipientOnline: recipientOnlineComputed
   });
 });

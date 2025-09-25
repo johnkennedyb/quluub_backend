@@ -19,7 +19,6 @@ const contactWaliEmailTemplate = require('./emailTemplates/contactWali');
 const waliViewChatEmailTemplate = require('./emailTemplates/waliViewChat');
 const validateEmailTemplate = require('./emailTemplates/validateEmail');
 const videoCallNotificationEmailTemplate = require('./emailTemplates/videoCallNotification');
-const testEmailTemplate = require('./emailTemplates/testEmail');
 
 // Email configuration for API-only service
 console.log('Loading Maileroo API email configuration...');
@@ -27,8 +26,8 @@ console.log('Loading Maileroo API email configuration...');
 // Email settings
 let emailSettings = {
   fromName: process.env.FROM_NAME || 'Quluub Team',
-  fromEmail: process.env.FROM_EMAIL || 'mail@quluub.com',
-  replyTo: process.env.REPLY_TO || 'support@quluub.com'
+  fromEmail: process.env.FROM_EMAIL || 'mail@match.quluub.com',
+  replyTo: process.env.REPLY_TO || 'support@match.quluub.com'
 };
 
 // Initialize email service

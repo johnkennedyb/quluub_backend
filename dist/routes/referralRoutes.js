@@ -5,7 +5,7 @@ const {
   applyReferralCode, 
   getReferralStats 
 } = require('../controllers/referralController');
-const { protect } = require('../middlewares/auth');
+const { protect } = require('../middlewares/authMiddleware');
 
 const router = express.Router();
 

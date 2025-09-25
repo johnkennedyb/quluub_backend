@@ -98,13 +98,28 @@ const getReports = async (req, res) => {
     const totalReports = await Report.countDocuments(query);
     const reports = await Report.find(query)
       .populate('reporter', 'fname lname username email')
-      .populate('reportedUser', 'fname lname username email')
+      .populate('reported', 'fname lname username email')  // Fixed field name
       .limit(parseInt(limit))
       .skip((page - 1) * parseInt(limit))
       .sort({ createdAt: -1 });
 
+    // Transform the data to match frontend expectations
+    const transformedReports = reports.map(report => ({
+      ...report.toObject(),
+      reporter: {
+        _id: report.reporter._id,
+        fullName: `${report.reporter.fname} ${report.reporter.lname}`,
+        username: report.reporter.username
+      },
+      reported: {
+        _id: report.reported._id,
+        fullName: `${report.reported.fname} ${report.reported.lname}`,
+        username: report.reported.username
+      }
+    }));
+
     res.json({
-      reports,
+      reports: transformedReports,
       pagination: {
         total: totalReports,
         currentPage: parseInt(page),
@@ -148,7 +163,7 @@ const updateReportStatus = async (req, res) => {
 
     await report.populate([
       { path: 'reporter', select: 'fname lname username email' },
-      { path: 'reportedUser', select: 'fname lname username email' },
+      { path: 'reported', select: 'fname lname username email' },
       { path: 'reviewedBy', select: 'fname lname username email' }
     ]);
 

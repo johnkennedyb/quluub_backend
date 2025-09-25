@@ -10,7 +10,7 @@ const {
   sendVerificationCode,
   verifyEmailCode
 } = require('../controllers/emailController');
-const { protect } = require('../middlewares/auth');
+const { protect } = require('../middlewares/authMiddleware');
 
 const router = express.Router();
 

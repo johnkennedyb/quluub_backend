@@ -412,7 +412,9 @@ const addChat = async (req, res) => {
     receiverId: userId,
     messageLength: message?.length,
     wordCount: message?.split(" ").length,
-    senderGender: userInfo.gender || 'unknown'
+    senderGender: userInfo.gender || 'unknown',
+    senderPlan: userInfo.plan || 'unknown',
+    hasWaliDetails: !!userInfo.waliDetails
   });
   
   try {
@@ -420,18 +422,51 @@ const addChat = async (req, res) => {
     const isMatched = await areUsersMatched(userInfo._id.toString(), userId);
     if (!isMatched) {
       console.log('❌ Users not matched:', { senderId: userInfo._id, receiverId: userId });
-      return res.status(403).json({ message: 'You can only message matched connections' });
+      return res.status(403).json({ 
+        message: 'You can only message matched connections',
+        error: 'USERS_NOT_MATCHED'
+      });
     }
 
     const contact = await findUser(userId);
     const currentUser = await findUser(userInfo._id);
+    
+    if (!contact) {
+      console.error('❌ Contact user not found:', userId);
+      return res.status(404).json({ 
+        message: 'Contact user not found',
+        error: 'CONTACT_NOT_FOUND'
+      });
+    }
+    
+    if (!currentUser) {
+      console.error('❌ Current user not found:', userInfo._id);
+      return res.status(404).json({ 
+        message: 'Current user not found',
+        error: 'CURRENT_USER_NOT_FOUND'
+      });
+    }
 
     const {
       messageAllowance,
       wordCountPerMessage,
     } = plans?.[currentUser.plan] || plans.freemium;
+    
+    console.log('📋 Plan Configuration:', {
+      userPlan: currentUser.plan,
+      messageAllowance,
+      wordCountPerMessage,
+      availablePlans: Object.keys(plans)
+    });
 
-    const sentCount = await getChatCountForValidation(contact._id, userInfo);
+    let sentCount;
+    try {
+      sentCount = await getChatCountForValidation(contact._id, userInfo);
+      console.log('📊 Message count retrieved:', { sentCount, contactId: contact._id });
+    } catch (error) {
+      console.error('❌ Error getting message count:', error);
+      sentCount = 0; // Default to 0 if count fails
+    }
     
     // Check if this is a video call invitation (exempt from word limits)
     const isVideoCallInvitation = messageType === 'video_call_invitation';
@@ -452,8 +487,23 @@ const addChat = async (req, res) => {
       (!isVideoCallInvitation && sentCount >= messageAllowance) ||
       (!isVideoCallInvitation && message.split(" ").length >= wordCountPerMessage)
     ) {
-      console.log('❌ Plan exceeded - returning 422');
-      return res.status(422).json({ msg: `plan exceeded` });
+      console.log('❌ Plan exceeded - returning 422', {
+        sentCount,
+        messageAllowance,
+        messageWordCount: message.split(" ").length,
+        wordCountPerMessage,
+        plan: currentUser.plan
+      });
+      return res.status(422).json({ 
+        msg: `plan exceeded`,
+        details: {
+          sentCount,
+          messageAllowance,
+          messageWordCount: message.split(" ").length,
+          wordCountPerMessage,
+          plan: currentUser.plan
+        }
+      });
     }
 
     if (currentUser.gender === "female") {
@@ -464,7 +514,10 @@ const addChat = async (req, res) => {
       
       if (!currentUser.waliDetails) {
         console.log('❌ Missing wali details - returning 422');
-        return res.status(422).json({ msg: `wali details required to chat` });
+        return res.status(422).json({ 
+          msg: `wali details required to chat`,
+          error: 'MISSING_WALI_DETAILS'
+        });
       }
 
       let waliEmail = null;
@@ -472,7 +525,10 @@ const addChat = async (req, res) => {
         waliEmail = JSON.parse(currentUser.waliDetails)?.email;
       } catch (e) {
         console.error('❌ Malformed waliDetails JSON:', currentUser.waliDetails, e);
-        return res.status(422).json({ msg: 'Malformed waliDetails JSON' });
+        return res.status(422).json({ 
+          msg: 'Malformed waliDetails JSON',
+          error: 'INVALID_WALI_DETAILS_FORMAT'
+        });
       }
       console.log('📧 Wali email check:', {
         hasWaliEmail: !!waliEmail,
@@ -481,7 +537,10 @@ const addChat = async (req, res) => {
       
       if (!waliEmail) {
         console.log('❌ Missing wali email - returning 422');
-        return res.status(422).json({ msg: `wali email required to chat` });
+        return res.status(422).json({ 
+          msg: `wali email required to chat`,
+          error: 'MISSING_WALI_EMAIL'
+        });
       }
     }
 
@@ -554,8 +613,22 @@ const addChat = async (req, res) => {
 
     return res.status(201).json(chat);
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error', error: error.message });
+    console.error('❌ Unexpected error in addChat:', error);
+    
+    // Check if it's a validation error that should return 422
+    if (error.name === 'ValidationError' || error.code === 11000) {
+      return res.status(422).json({ 
+        message: 'Validation error', 
+        error: error.message,
+        details: error
+      });
+    }
+    
+    res.status(500).json({ 
+      message: 'Server error', 
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 };
 

@@ -8,7 +8,7 @@ const {
   getPendingRequests,
   getSentRequests
 } = require('../controllers/relationshipController');
-const { protect } = require('../middlewares/auth');
+const { protect } = require('../middlewares/authMiddleware');
 
 const router = express.Router();
 

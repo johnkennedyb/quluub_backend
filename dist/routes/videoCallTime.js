@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const videoCallTimeController = require('../controllers/videoCallTimeController');
-const { protect } = require('../middlewares/auth');
+const { protect } = require('../middlewares/authMiddleware');
 
 // Get video call time information for a pair
 router.get('/info/:userId1/:userId2', protect, videoCallTimeController.getVideoCallTimeInfo);

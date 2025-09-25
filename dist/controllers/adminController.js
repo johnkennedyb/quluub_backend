@@ -136,6 +136,12 @@ const getStats = async (req, res) => {
     const totalReferrals = await User.countDocuments({ referredBy: { $exists: true } });
     const activeReferrals = await User.countDocuments({ referredBy: { $exists: true }, status: 'active' });
     
+    // Report Statistics
+    const totalReports = await Report.countDocuments();
+    const pendingReports = await Report.countDocuments({ status: 'pending' });
+    const reportsThisWeek = await Report.countDocuments({ createdAt: { $gte: oneWeekAgo } });
+    const reportsThisMonth = await Report.countDocuments({ createdAt: { $gte: oneMonthAgo } });
+
     // Age distribution - Simplified approach to avoid type issues
     let ageDistribution = [];
     try {
@@ -179,6 +185,8 @@ const getStats = async (req, res) => {
       growthRate: parseFloat(cappedGrowthRate.toFixed(2)), 
       engagementRate: parseFloat(engagementRate.toFixed(2)),
       totalReferrals, activeReferrals,
+      // Report statistics
+      totalReports, pendingReports, reportsThisWeek, reportsThisMonth,
       geographicDistribution, topReferrers, ageDistribution
     };
 

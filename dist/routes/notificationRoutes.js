@@ -6,7 +6,7 @@ const {
   sendCallNotification,
   deleteNotification,
 } = require('../controllers/notificationController');
-const { protect, isAdmin: admin } = require('../middlewares/auth');
+const { protect, admin } = require('../middlewares/authMiddleware');
 
 const router = express.Router();
 

@@ -16,7 +16,7 @@ const {
   updateVideoCallInvitationStatus,
   createOrFindConversation
 } = require('../controllers/chatController');
-const { protect } = require('../middlewares/auth');
+const { protect } = require('../middlewares/authMiddleware');
 
 const router = express.Router();
 

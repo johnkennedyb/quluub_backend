@@ -16,7 +16,7 @@ const {
   debugUsers
 } = require('../controllers/userController');
 const { getProfileWithRelationships } = require('../controllers/optimizedUserController');
-const { protect } = require('../middlewares/auth');
+const { protect } = require('../middlewares/authMiddleware');
 
 const router = express.Router();
 
