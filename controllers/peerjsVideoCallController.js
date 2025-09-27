@@ -50,9 +50,20 @@ exports.initiatePeerJSCall = asyncHandler(async (req, res) => {
   const callData = {
     callerId: callerId.toString(),
     callerName: `${caller.fname} ${caller.lname}`,
+    callerUsername: caller.username || '',
     recipientId: recipientId.toString(),
     sessionId: sessionId,
     timestamp: new Date().toISOString(),
+    videoCallData: {
+      callerId: callerId.toString(),
+      callerName: `${caller.fname} ${caller.lname}`,
+      callerUsername: caller.username || '',
+      recipientId: recipientId.toString(),
+      sessionId: sessionId,
+      timestamp: new Date().toISOString(),
+      status: 'pending'
+    },
+    isOutgoing: false
   };
 
   // Check if notification already exists for this session to prevent duplicates
@@ -78,16 +89,51 @@ exports.initiatePeerJSCall = asyncHandler(async (req, res) => {
   const recipientRoom = io?.sockets?.adapter?.rooms?.get(recipientKey);
   const recipientOnlineComputed = !!recipientSocketId || (!!recipientRoom && recipientRoom.size > 0);
 
-  // Direct-to-socket delivery (fast path)
+  console.log('📞 PEERJS CONTROLLER DEBUG: Notification attempt', {
+    recipientId: recipientKey,
+    recipientSocketId,
+    onlineUsersSize: onlineUsers.size,
+    roomSize: recipientRoom?.size || 0,
+    recipientOnline: recipientOnlineComputed
+  });
+
+  let notificationSent = false;
+
+  // LAYER 1: Direct-to-socket delivery (fastest)
   if (recipientSocketId) {
-    io.to(recipientSocketId).emit('video_call_invitation', callData);
+    try {
+      console.log('📞 LAYER 1: Direct socket notification to:', recipientSocketId);
+      io.to(recipientSocketId).emit('video_call_invitation', callData);
+      io.to(recipientSocketId).emit('send-video-call-invitation', callData);
+      notificationSent = true;
+    } catch (error) {
+      console.error('📞 LAYER 1 ERROR:', error);
+    }
   }
-  // Room-based delivery (backup path)
+  
+  // LAYER 2: Room-based delivery (backup path)
   try {
+    console.log('📞 LAYER 2: Room-based notification to room:', recipientKey);
     io.to(recipientKey).emit('video_call_invitation', callData);
-  } catch (err) {
-    // Silent fallback
+    io.to(recipientKey).emit('send-video-call-invitation', callData);
+    notificationSent = true;
+  } catch (error) {
+    console.error('📞 LAYER 2 ERROR:', error);
   }
+  
+  // LAYER 3: Broadcast fallback with client-side filtering
+  try {
+    console.log('📞 LAYER 3: Broadcast fallback notification');
+    io.emit('video_call_invitation_broadcast', {
+      ...callData,
+      targetUserId: recipientId.toString()
+    });
+    notificationSent = true;
+  } catch (error) {
+    console.error('📞 LAYER 3 ERROR:', error);
+  }
+
+  console.log('📞 NOTIFICATION RESULT:', { notificationSent, recipientOnline: recipientOnlineComputed });
 
   // Clear any existing notifications for this session to prevent duplicates
   await Notification.deleteMany({

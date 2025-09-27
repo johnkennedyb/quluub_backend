@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const dotenv = require('dotenv');
+const jwt = require('jsonwebtoken');
 const connectDB = require('./config/db');
 const { notFound, errorHandler } = require('./middlewares/errorHandler_fixed');
 const adminRoutes = require('./routes/adminRoutes');
@@ -58,21 +59,36 @@ const peerServer = ExpressPeerServer(server, {
     credentials: true
   },
   iceServers: [
+    // Multiple Google STUN servers for better reliability
     { urls: 'stun:stun.l.google.com:19302' },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
     { urls: 'stun:stun3.l.google.com:19302' },
-    // TURN servers for users behind NAT/firewalls
+    { urls: 'stun:stun4.l.google.com:19302' },
+    
+    // Additional reliable STUN servers
+    { urls: 'stun:stun.stunprotocol.org:3478' },
+    { urls: 'stun:stun.voiparound.com' },
+    { urls: 'stun:stun.voipbuster.com' },
+    
+    // Free TURN servers (fallback)
     {
-      urls: 'turn:relay1.expressturn.com:3478',
-      username: 'efJBIBF0YIPZ8USRBH',
-      credential: 'T4rSq09kikgUFfWdmhGZc1XrMq',
+      urls: 'turn:openrelay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
     },
     {
-      urls: 'turn:relay1.expressturn.com:3478?transport=tcp',
-      username: 'efJBIBF0YIPZ8USRBH',
-      credential: 'T4rSq09kikgUFfWdmhGZc1XrMq',
+      urls: 'turn:openrelay.metered.ca:443',
+      username: 'openrelayproject',
+      credential: 'openrelayproject',
     },
+    
+    // Custom TURN server if configured
+    ...(process.env.TURN_URL ? [{
+      urls: process.env.TURN_URL,
+      username: process.env.TURN_USERNAME,
+      credential: process.env.TURN_PASSWORD,
+    }] : [])
   ]
 });
 
@@ -99,7 +115,20 @@ app.use(express.json());
 
 // OPTIMIZED SOCKET.IO CONFIGURATION FOR PRODUCTION
 const io = new Server(server, {
-  cors: corsOptions,
+  path: '/socket.io',
+  cors: {
+    origin: [
+      'http://localhost:8080',
+      'http://localhost:5173',
+      'http://localhost:3000',
+      'https://quluub-reborn-project-33.vercel.app',
+      'https://preview--quluub-reborn-project-99.lovable.app',
+      'https://love.quluub.com',
+      'https://match.quluub.com'
+    ],
+    methods: ['GET', 'POST'],
+    credentials: true
+  },
   transports: ['websocket', 'polling'], // Prioritize websocket for better performance
   
   // Aggressive performance optimizations
@@ -140,42 +169,72 @@ app.set('onlineUsers', onlineUsers);
 const webrtcNamespace = io.of('/webrtc');
 
 
+// Socket authentication middleware for MAIN namespace (video calls, messages, etc.)
+io.use(async (socket, next) => {
+  try {
+    const token = socket.handshake.auth.token;
+    if (!token) {
+      const debugUserId = `debug-${socket.id}`;
+      socket.userId = debugUserId;
+      socket.user = { _id: debugUserId, fname: `Debug-${socket.id.slice(-4)}` };
+      return next();
+    }
+
+    // Verify JWT token
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const user = await User.findById(decoded.id).select('-password');
+    if (!user) {
+      return next(new Error('User not found'));
+    }
+
+    socket.userId = user._id.toString();
+    socket.user = user;
+    next();
+  } catch (error) {
+    console.error('❌ Main namespace socket authentication error:', error.message);
+    next(new Error('Authentication error'));
+  }
+});
+
 // Socket.IO authentication middleware for WebRTC namespace
 webrtcNamespace.use(async (socket, next) => {
   try {
     const token = socket.handshake.auth.token;
     if (!token) {
-      return next(new Error('Authentication error: No token provided'));
+      return next(new Error('Authentication error'));
     }
 
-    const jwt = require('jsonwebtoken');
+    // Verify JWT token
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const User = require('./models/User');
-    const user = await User.findById(decoded.id);
-    
+    const user = await User.findById(decoded.id).select('-password');
     if (!user) {
-      return next(new Error('Authentication error: User not found'));
+      return next(new Error('User not found'));
     }
 
     socket.userId = user._id.toString();
     socket.user = user;
-    console.log('✅ Socket authenticated for user:', user.fname, user._id);
     next();
   } catch (error) {
-    console.error('❌ Socket authentication error:', error.message);
+    console.error('❌ WebRTC namespace socket authentication error:', error.message);
     next(new Error('Authentication error'));
   }
 });
 
 // Main namespace connection (for general app functionality)
 io.on('connection', (socket) => {
+  
   socket.on('join', (userId) => {
-    socket.join(userId);
-    onlineUsers.set(userId.toString(), socket.id);
-    // Throttle online users broadcast for performance
-    if (onlineUsers.size % 10 === 0) {
-      io.emit('getOnlineUsers', Array.from(onlineUsers.keys()));
-    }
+    const userIdStr = userId.toString();
+    socket.join(userIdStr);
+    onlineUsers.set(userIdStr, socket.id);
+    
+    // Always broadcast updated online users list
+    io.emit('getOnlineUsers', Array.from(onlineUsers.keys()));
+  });
+  
+  // Add listener for joinNotifications event as well
+  socket.on('joinNotifications', (userId) => {
+    socket.join(`notifications_${userId}`);
   });
 
   // CONVERSATION ROOM MANAGEMENT
@@ -187,131 +246,9 @@ io.on('connection', (socket) => {
     socket.leave(conversationId);
   });
 
-  // VIDEO CALL NOTIFICATION SYSTEM
-  socket.on('send-video-call-invitation', async (data) => {
-    console.log('📞 BACKEND DEBUG: Received video call invitation:', data);
-    
-    const recipientId = data.recipientId.toString();
-    const callerId = data.callerId.toString();
-    console.log('📞 BACKEND DEBUG: Parsed IDs - Caller:', callerId, 'Recipient:', recipientId);
-    let videoCallRecord = null;
-    let remainingTime = 300; // Default 5 minutes
-
-    try {
-      // Check if users can make video calls (5-minute limit validation)
-      videoCallRecord = await VideoCallTime.getOrCreatePairRecord(callerId, recipientId);
-      
-      if (!videoCallRecord.canMakeVideoCall()) {
-        // Send rejection message to caller
-        const rejectionMessage = {
-          type: 'video_call_rejected',
-          reason: 'time_limit_exceeded',
-          message: 'Video call time limit (5 minutes) exceeded for this match. No more video calls allowed.',
-          remainingTime: 0,
-          limitExceeded: true,
-          sessionId: data.sessionId
-        };
-        
-        socket.emit('video_call_rejected', rejectionMessage);
-        return;
-      }
-
-      // Add remaining time info to the invitation
-      remainingTime = videoCallRecord.getRemainingTime();
-    } catch (error) {
-      // Continue with call invitation even if time check fails (fallback)
-    }
-    
-    // Create standardized video call message
-    const videoCallMessage = {
-      senderId: callerId,
-      recipientId: recipientId,
-      message: `${data.callerName} is inviting you to a video call`,
-      messageType: 'video_call_invitation',
-      videoCallData: {
-        callerId: callerId,
-        callerName: data.callerName,
-        sessionId: data.sessionId,
-        timestamp: data.timestamp,
-        status: 'pending',
-        remainingTime: remainingTime
-      },
-      createdAt: new Date().toISOString()
-    };
-
-    // Single reliable notification - direct to recipient
-    const recipientSocketId = onlineUsers.get(recipientId);
-    let notificationSent = false;
-    
-    console.log('📞 BACKEND DEBUG: Recipient socket lookup:', { recipientId, recipientSocketId, onlineUsersSize: onlineUsers.size });
-    
-    if (recipientSocketId) {
-      try {
-        console.log('📞 BACKEND DEBUG: Emitting video_call_invitation to socket:', recipientSocketId);
-        io.to(recipientSocketId).emit('video_call_invitation', videoCallMessage);
-        // Also emit for activity feed
-        console.log('📞 BACKEND DEBUG: Emitting send-video-call-invitation to socket:', recipientSocketId);
-        io.to(recipientSocketId).emit('send-video-call-invitation', {
-          callerId: callerId,
-          callerName: data.callerName,
-          callerUsername: data.callerUsername,
-          recipientId: recipientId,
-          sessionId: data.sessionId,
-          timestamp: data.timestamp
-        });
-        notificationSent = true;
-      } catch (error) {
-        console.error('📞 BACKEND DEBUG: Error emitting to direct socket:', error);
-      }
-    } else {
-      console.log('📞 BACKEND DEBUG: Recipient not found in onlineUsers, trying room-based notification');
-    }
-
-    // Also send to recipient's room as backup
-    try {
-      console.log('📞 BACKEND DEBUG: Emitting to recipient room:', recipientId);
-      io.to(recipientId).emit('video_call_invitation', videoCallMessage);
-      // Also emit for activity feed
-      io.to(recipientId).emit('send-video-call-invitation', {
-        callerId: callerId,
-        callerName: data.callerName,
-        callerUsername: data.callerUsername,
-        recipientId: recipientId,
-        sessionId: data.sessionId,
-        timestamp: data.timestamp
-      });
-      notificationSent = true;
-    } catch (error) {
-      console.error('📞 BACKEND DEBUG: Error emitting to room:', error);
-    }
-
-    // LAYER 3: Broadcast fallback with client-side filtering
-    try {
-      console.log('📞 BACKEND DEBUG: Emitting broadcast fallback');
-      io.emit('video_call_invitation_broadcast', {
-        // Top-level fields for easier client handling
-        callerId: callerId,
-        callerName: data.callerName,
-        callerUsername: data.callerUsername,
-        recipientId: recipientId,
-        sessionId: data.sessionId,
-        timestamp: data.timestamp,
-        // Original structured message for richer clients
-        ...videoCallMessage,
-        targetUserId: recipientId
-      });
-    } catch (error) {
-      console.error('📞 BACKEND DEBUG: Error emitting broadcast:', error);
-    }
-
-    // Send result back to caller
-    socket.emit('video-call-invitation-result', {
-      success: notificationSent,
-      recipientOnline: !!recipientSocketId
-    });
-
-    // Removed verbose logging for performance
-  });
+  // VIDEO CALL NOTIFICATION SYSTEM - REMOVED
+  // This is now handled by /api/peerjs-video-call/initiate endpoint
+  // to prevent duplicate notification systems and ensure single source of truth
 
   // Handle call rejection
   socket.on('reject-video-call', (data) => {
@@ -372,28 +309,31 @@ io.on('connection', (socket) => {
         await videoCallRecord.save();
       }
       
-      // Broadcast call end to both participants
+      // Broadcast call end to both participants (avoid duplicates)
       const participants = [userId.toString(), participantId.toString()];
+      const notifiedSockets = new Set();
       
       participants.forEach(participantId => {
         const participantSocketId = onlineUsers.get(participantId);
-        if (participantSocketId) {
+        if (participantSocketId && !notifiedSockets.has(participantSocketId)) {
           io.to(participantSocketId).emit('video_call_ended', {
             sessionId,
             endedBy: userId,
             timestamp: new Date().toISOString()
           });
+          notifiedSockets.add(participantSocketId);
         }
         
-        // Also send to participant's room
-        io.to(participantId).emit('video_call_ended', {
-          sessionId,
-          endedBy: userId,
-          timestamp: new Date().toISOString()
-        });
+        // Only send to room if no direct socket connection was found
+        if (!participantSocketId) {
+          io.to(participantId).emit('video_call_ended', {
+            sessionId,
+            endedBy: userId,
+            timestamp: new Date().toISOString()
+          });
+        }
       });
       
-      console.log(`📞 Video call ended - Session: ${sessionId}, Ended by: ${userId}`);
       
     } catch (error) {
       console.error('Error handling video call end:', error);
@@ -407,12 +347,23 @@ io.on('connection', (socket) => {
     // Find the caller's socket and notify them
     // The roomId/sessionId contains the caller info
     if (data.roomId || data.sessionId) {
-      // Emit to all sockets in the room (this will reach the caller)
-      socket.broadcast.emit('call_accepted', {
-        sessionId: data.sessionId || data.roomId,
+      const sessionId = data.sessionId || data.roomId;
+      
+      // Join the session room for coordinated communication
+      socket.join(sessionId);
+      
+      // Emit to all clients (broadcast to everyone) - primary method
+      io.emit('call_accepted', {
+        sessionId: sessionId,
         recipientName: data.recipientName
       });
-      // Emitted call_accepted event to notify caller
+      
+      // Also emit to the specific session room if it exists
+      socket.to(sessionId).emit('call_accepted', {
+        sessionId: sessionId,
+        recipientName: data.recipientName
+      });
+      
     }
   });
 
@@ -426,6 +377,7 @@ io.on('connection', (socket) => {
 
 
   socket.on('disconnect', () => {
+    
     // Find the user associated with the disconnected socket
     const userId = [...onlineUsers.entries()]
       .find(([key, value]) => value === socket.id)?.[0];
@@ -455,6 +407,11 @@ webrtcNamespace.on('connection', (socket) => {
     const callerId = data.callerId.toString();
     let videoCallRecord = null;
     let remainingTime = 300; // Default 5 minutes
+    
+    // Join the session room for coordinated communication
+    if (data.sessionId) {
+      socket.join(data.sessionId);
+    }
 
     try {
       // Validate 5-minute video call limit
@@ -679,16 +636,109 @@ app.use('/api/peerjs-video-call', peerjsRoutes);
 app.use('/api/video-recording', videoRecordingRoutes);
 app.use('/api/video-call-time', videoCallTimeRoutes);
 
+// Set user as online (called when user makes any API request)
+const { protect } = require('./middlewares/authMiddleware');
+app.post('/api/user/set-online', protect, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const User = require('./models/User');
+    
+    // Update user's last seen timestamp
+    await User.findByIdAndUpdate(userId, {
+      lastSeen: new Date(),
+      isOnline: true
+    });
+    
+    // Add to online users map
+    onlineUsers.set(userId, 'api-connection');
+    
+    
+    // Broadcast updated online users
+    io.emit('getOnlineUsers', Array.from(onlineUsers.keys()));
+    
+    res.json({ success: true, message: 'User marked as online' });
+  } catch (error) {
+    console.error('Error setting user online:', error);
+    res.status(500).json({ error: 'Failed to set user online' });
+  }
+});
+
+// Get online users (checks both socket connections and recent API activity)
+app.get('/api/users/online', async (req, res) => {
+  try {
+    const User = require('./models/User');
+    
+    // Get users who were active in the last 5 minutes
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+    const recentlyActiveUsers = await User.find({
+      lastSeen: { $gte: fiveMinutesAgo }
+    }).select('_id fname lname username lastSeen isOnline');
+    
+    // Combine socket-connected users with recently active users
+    const socketUsers = Array.from(onlineUsers.keys());
+    const apiUsers = recentlyActiveUsers.map(user => user._id.toString());
+    
+    // Create unique list of online users
+    const allOnlineUsers = [...new Set([...socketUsers, ...apiUsers])];
+    
+    
+    res.json({
+      totalOnline: allOnlineUsers.length,
+      onlineUsers: allOnlineUsers,
+      recentlyActive: recentlyActiveUsers,
+      socketConnected: socketUsers
+    });
+  } catch (error) {
+    console.error('Error getting online users:', error);
+    res.status(500).json({ error: 'Failed to get online users' });
+  }
+});
+
+// Debug endpoint to check online users
+app.get('/api/debug/online-users', (req, res) => {
+  const onlineUsersList = Array.from(onlineUsers.entries()).map(([userId, socketId]) => ({
+    userId,
+    socketId
+  }));
+  
+  
+  res.json({
+    totalOnline: onlineUsers.size,
+    onlineUsers: onlineUsersList
+  });
+});
+
+// Force broadcast online users
+app.get('/api/debug/broadcast-online-users', (req, res) => {
+  const onlineUsersList = Array.from(onlineUsers.keys());
+  io.emit('getOnlineUsers', onlineUsersList);
+  
+  res.json({
+    message: 'Broadcasted online users',
+    totalOnline: onlineUsers.size,
+    onlineUsers: onlineUsersList
+  });
+});
+
 app.use(notFound);
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 5000;
 
+// Add Socket.IO error handling
+io.engine.on("connection_error", (err) => {
+  console.error('❌ Socket.IO connection error:', err.req);
+  console.error('❌ Error code:', err.code);
+  console.error('❌ Error message:', err.message);
+  console.error('❌ Error context:', err.context);
+});
+
 server.listen(PORT, async () => {
-  console.log(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
   
   // Start email scheduler for automated notifications
   startScheduler();
+  
+  // Log online users count every 30 seconds for monitoring
   
   // Create database indexes for optimal performance after MongoDB connects
   mongoose.connection.once('connected', async () => {
