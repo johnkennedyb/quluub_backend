@@ -47,7 +47,6 @@ const sendInitialWaliEmail = async (femaleUser, otherUser) => {
 
     // Enhanced email with direct chat view link
     await sendWaliViewChatEmailWithChatLink(waliEmail, waliName, wardName, brotherName, chatLink);
-    console.log('📧 Initial Wali email sent to', waliEmail, 'for conversation between', wardName, 'and', brotherName);
   } catch (err) {
     console.error('❌ Failed to send initial Wali email:', err);
   }
@@ -127,7 +126,6 @@ const sendVideoCallReportToWali = async (callerId, recipientId, callData, record
       }
     }
 
-    console.log(`Video call report sent to Wali/guardians for call between ${caller.fname} and ${recipient.fname}`);
   } catch (error) {
     console.error('Error sending video call report to Wali:', error);
   }
@@ -325,7 +323,6 @@ const getMessages = async (req, res) => {
     const limit = Math.min(parseInt(req.query.limit) || 50, 100); // Cap at 100
     const skip = (page - 1) * limit;
 
-    console.log(`📨 Fetching messages for conversation between ${currentUserId} and ${otherUserId}, page: ${page}, limit: ${limit}`);
 
     // Single optimized query with pagination and lean for better performance
     const messages = await Chat.find({
@@ -368,7 +365,6 @@ const getMessages = async (req, res) => {
       }
     });
 
-    console.log(`✅ Returned ${chronologicalMessages.length} messages for conversation between ${currentUserId} and ${otherUserId}`);
 
   } catch (error) {
     console.error('❌ Error fetching messages:', error);
@@ -393,7 +389,6 @@ const getChatCountForValidation = async (userId, userInfo) => {
 // ADD CHAT / SEND MESSAGE - OPTIMIZED
 const addChat = async (req, res) => {
   const startTime = Date.now();
-  console.log('📥 Optimized addChat request started');
   
   const userInfo = req.user;
   const { userId, message, messageType, videoCallData } = req.body;
@@ -407,21 +402,11 @@ const addChat = async (req, res) => {
     console.error('❌ Invalid or missing message:', message);
     return res.status(400).json({ message: 'Invalid or missing message' });
   }
-  console.log('🔍 Send Message Debug:', {
-    senderId: userInfo._id,
-    receiverId: userId,
-    messageLength: message?.length,
-    wordCount: message?.split(" ").length,
-    senderGender: userInfo.gender || 'unknown',
-    senderPlan: userInfo.plan || 'unknown',
-    hasWaliDetails: !!userInfo.waliDetails
-  });
   
   try {
     // Check if users are matched before allowing to send messages
     const isMatched = await areUsersMatched(userInfo._id.toString(), userId);
     if (!isMatched) {
-      console.log('❌ Users not matched:', { senderId: userInfo._id, receiverId: userId });
       return res.status(403).json({ 
         message: 'You can only message matched connections',
         error: 'USERS_NOT_MATCHED'
@@ -452,17 +437,10 @@ const addChat = async (req, res) => {
       wordCountPerMessage,
     } = plans?.[currentUser.plan] || plans.freemium;
     
-    console.log('📋 Plan Configuration:', {
-      userPlan: currentUser.plan,
-      messageAllowance,
-      wordCountPerMessage,
-      availablePlans: Object.keys(plans)
-    });
 
     let sentCount;
     try {
       sentCount = await getChatCountForValidation(contact._id, userInfo);
-      console.log('📊 Message count retrieved:', { sentCount, contactId: contact._id });
     } catch (error) {
       console.error('❌ Error getting message count:', error);
       sentCount = 0; // Default to 0 if count fails
@@ -471,29 +449,11 @@ const addChat = async (req, res) => {
     // Check if this is a video call invitation (exempt from word limits)
     const isVideoCallInvitation = messageType === 'video_call_invitation';
     
-    console.log('📊 Message Limits Check:', {
-      currentPlan: currentUser.plan,
-      sentCount,
-      messageAllowance,
-      messageWordCount: message.split(" ").length,
-      wordCountPerMessage,
-      exceedsCount: sentCount >= messageAllowance,
-      exceedsWords: message.split(" ").length >= wordCountPerMessage,
-      isVideoCallInvitation,
-      messageType
-    });
 
     if (
       (!isVideoCallInvitation && sentCount >= messageAllowance) ||
       (!isVideoCallInvitation && message.split(" ").length >= wordCountPerMessage)
     ) {
-      console.log('❌ Plan exceeded - returning 422', {
-        sentCount,
-        messageAllowance,
-        messageWordCount: message.split(" ").length,
-        wordCountPerMessage,
-        plan: currentUser.plan
-      });
       return res.status(422).json({ 
         msg: `plan exceeded`,
         details: {
@@ -507,13 +467,8 @@ const addChat = async (req, res) => {
     }
 
     if (currentUser.gender === "female") {
-      console.log('👩 Female user - checking wali details:', {
-        hasWaliDetails: !!currentUser.waliDetails,
-        waliDetailsContent: currentUser.waliDetails ? 'present' : 'missing'
-      });
       
       if (!currentUser.waliDetails) {
-        console.log('❌ Missing wali details - returning 422');
         return res.status(422).json({ 
           msg: `wali details required to chat`,
           error: 'MISSING_WALI_DETAILS'
@@ -530,13 +485,8 @@ const addChat = async (req, res) => {
           error: 'INVALID_WALI_DETAILS_FORMAT'
         });
       }
-      console.log('📧 Wali email check:', {
-        hasWaliEmail: !!waliEmail,
-        waliEmail: waliEmail ? 'present' : 'missing'
-      });
       
       if (!waliEmail) {
-        console.log('❌ Missing wali email - returning 422');
         return res.status(422).json({ 
           msg: `wali email required to chat`,
           error: 'MISSING_WALI_EMAIL'
@@ -553,10 +503,9 @@ const addChat = async (req, res) => {
     await chat.save();
 
     // 🚀 REAL-TIME MESSAGE BROADCASTING
-    // Get socket.io instance and broadcast message to recipient
+    // Get socket.io instance and broadcast message to recipient ONLY
     const io = req.app.get('io');
     if (io) {
-      console.log('📡 Broadcasting message to recipient:', contact._id.toString());
       
       // Create consistent conversation ID (same format as frontend)
       const conversationId = [userInfo._id.toString(), contact._id.toString()].sort().join('_');
@@ -575,19 +524,29 @@ const addChat = async (req, res) => {
       
       // Enhanced logging for video call invitations
       if (messageType === 'video_call_invitation') {
-        console.log('📞 Broadcasting video call invitation:', {
-          messageType,
-          senderId: userInfo._id,
-          recipientId: contact._id,
-          videoCallData,
-          conversationId
-        });
       }
       
-      // SINGLE MESSAGE BROADCAST - Only emit to recipient's room to prevent duplicates
-      io.to(contact._id.toString()).emit('new_message', messageData);
+      // CRITICAL: Only broadcast to recipient, NEVER to sender to prevent duplicates
+      // Get all sockets for the recipient user
+      const recipientSockets = [];
+      io.sockets.sockets.forEach((socket) => {
+        if (socket.userId === contact._id.toString()) {
+          recipientSockets.push(socket.id);
+        }
+      });
       
-      console.log('✅ Message broadcasted successfully');
+      // Emit to each recipient socket individually to ensure delivery
+      if (recipientSockets.length > 0) {
+        recipientSockets.forEach(socketId => {
+          io.to(socketId).emit('new_message', messageData);
+        });
+      } else {
+        // Fallback: emit to recipient's user room if no direct sockets found
+        io.to(contact._id.toString()).emit('new_message', messageData);
+      }
+      
+      // IMPORTANT: Never emit to sender's room or sockets to prevent duplicates
+      
     } else {
       console.warn('⚠️ Socket.io not available for broadcasting');
     }
@@ -725,12 +684,6 @@ const sendVideoCallInvitation = async (req, res) => {
   const { conversationId } = req.params;
   const invitationData = req.body;
   
-  console.log('📞 Sending video call invitation:', {
-    senderId: userInfo._id,
-    conversationId,
-    roomUrl: invitationData.roomUrl,
-    roomName: invitationData.roomName
-  });
   
   try {
     // Get sender and receiver information
@@ -796,10 +749,8 @@ const sendVideoCallInvitation = async (req, res) => {
         timestamp: new Date().toISOString()
       });
       
-      console.log('📡 Real-time notifications sent via socket');
     }
     
-    console.log('✅ Video call invitation sent successfully with notifications');
     
     return res.status(201).json({
       message: 'Video call invitation sent successfully',
@@ -915,7 +866,6 @@ const initiateVideoCall = async (req, res) => {
       timestamp: new Date().toISOString()
     };
 
-    console.log(`WebRTC video call initiated by ${currentUser.username} to ${recipientUser.username}`);
 
     // 5. Send video call report to Wali/guardians
     await sendVideoCallReportToWali(userInfo._id.toString(), recipientId, callData);
@@ -943,7 +893,6 @@ const updateVideoCallInvitationStatus = async (req, res) => {
     const { status } = req.body;
     const userId = req.user.id;
     
-    console.log(`📝 Updating invitation ${invitationId} status to: ${status}`);
 
     // Find the invitation and verify user has permission to update it
     const invitation = await Message.findOne({
@@ -971,7 +920,6 @@ const updateVideoCallInvitationStatus = async (req, res) => {
 
     await invitation.save();
     
-    console.log(`✅ Invitation ${invitationId} status updated to: ${status}`);
 
     res.json({
       success: true,
@@ -997,7 +945,6 @@ const updateVideoCallInvitationStatus = async (req, res) => {
 const getPendingVideoCallInvitations = async (req, res) => {
   try {
     const userId = req.user.id;
-    console.log('📞 Fetching pending video call invitations for user:', userId);
 
     // Find all video call invitation messages where user is recipient
     // and the invitation is still pending (not expired, accepted, or declined)
@@ -1012,7 +959,6 @@ const getPendingVideoCallInvitations = async (req, res) => {
     .populate('conversationId')
     .sort({ createdAt: -1 });
 
-    console.log(`✅ Found ${pendingInvitations.length} pending video call invitations`);
 
     // Format the invitations for frontend
     const formattedInvitations = pendingInvitations.map(invitation => ({

@@ -167,6 +167,8 @@ app.set('onlineUsers', onlineUsers);
 
 // Create WebRTC namespace for video call functionality
 const webrtcNamespace = io.of('/webrtc');
+app.set('webrtcNamespace', webrtcNamespace);
+app.set('webrtcUsers', webrtcUsers);
 
 
 // Socket authentication middleware for MAIN namespace (video calls, messages, etc.)
@@ -340,6 +342,24 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Handle peer-call-ended event from PeerJS service
+  socket.on('peer-call-ended', (data) => {
+    
+    // Check if data exists and has userId
+    if (!data || !data.userId) {
+      console.error('❌ peer-call-ended: Invalid data received:', data);
+      return;
+    }
+    
+    const { userId } = data;
+    
+    // Broadcast termination to all connected clients for this user
+    // This ensures both participants receive the termination signal
+    socket.broadcast.emit('peer_call_terminated', {
+      terminatedBy: userId,
+      timestamp: new Date().toISOString()
+    });
+  });
 
   // Handle accept-call event from frontend
   socket.on('accept-call', (data) => {

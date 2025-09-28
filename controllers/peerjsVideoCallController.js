@@ -45,7 +45,9 @@ exports.initiatePeerJSCall = asyncHandler(async (req, res) => {
   }
 
   const io = req.app.get('io');
-  const onlineUsers = req.app.get('onlineUsers'); 
+  const webrtcNamespace = req.app.get('webrtcNamespace');
+  const onlineUsers = req.app.get('onlineUsers');
+  const webrtcUsers = req.app.get('webrtcUsers'); 
 
   const callData = {
     callerId: callerId.toString(),
@@ -84,53 +86,73 @@ exports.initiatePeerJSCall = asyncHandler(async (req, res) => {
 
   // Try to send real-time notification if recipient is online
   const recipientKey = recipientId.toString();
-  const recipientSocketId = onlineUsers.get(recipientKey);
+  const recipientWebRTCSocketId = webrtcUsers.get(recipientKey);
+  const recipientMainSocketId = onlineUsers.get(recipientKey);
+  
   // Also check room membership as a reliable backup for online detection
-  const recipientRoom = io?.sockets?.adapter?.rooms?.get(recipientKey);
-  const recipientOnlineComputed = !!recipientSocketId || (!!recipientRoom && recipientRoom.size > 0);
+  const recipientWebRTCRoom = webrtcNamespace?.adapter?.rooms?.get(recipientKey);
+  const recipientMainRoom = io?.sockets?.adapter?.rooms?.get(recipientKey);
+  
+  const recipientOnlineComputed = !!recipientWebRTCSocketId || !!recipientMainSocketId || 
+                                  (!!recipientWebRTCRoom && recipientWebRTCRoom.size > 0) ||
+                                  (!!recipientMainRoom && recipientMainRoom.size > 0);
 
   console.log('📞 PEERJS CONTROLLER DEBUG: Notification attempt', {
     recipientId: recipientKey,
-    recipientSocketId,
+    recipientWebRTCSocketId,
+    recipientMainSocketId,
+    webrtcUsersSize: webrtcUsers.size,
     onlineUsersSize: onlineUsers.size,
-    roomSize: recipientRoom?.size || 0,
+    webrtcRoomSize: recipientWebRTCRoom?.size || 0,
+    mainRoomSize: recipientMainRoom?.size || 0,
     recipientOnline: recipientOnlineComputed
   });
 
   let notificationSent = false;
 
-  // LAYER 1: Direct-to-socket delivery (fastest)
-  if (recipientSocketId) {
+  // LAYER 1: Direct WebRTC namespace notification (primary)
+  if (recipientWebRTCSocketId && webrtcNamespace) {
     try {
-      console.log('📞 LAYER 1: Direct socket notification to:', recipientSocketId);
-      io.to(recipientSocketId).emit('video_call_invitation', callData);
-      io.to(recipientSocketId).emit('send-video-call-invitation', callData);
+      console.log('📞 LAYER 1: Direct WebRTC socket notification to:', recipientWebRTCSocketId);
+      webrtcNamespace.to(recipientWebRTCSocketId).emit('send-video-call-invitation', callData);
       notificationSent = true;
     } catch (error) {
       console.error('📞 LAYER 1 ERROR:', error);
     }
   }
   
-  // LAYER 2: Room-based delivery (backup path)
-  try {
-    console.log('📞 LAYER 2: Room-based notification to room:', recipientKey);
-    io.to(recipientKey).emit('video_call_invitation', callData);
-    io.to(recipientKey).emit('send-video-call-invitation', callData);
-    notificationSent = true;
-  } catch (error) {
-    console.error('📞 LAYER 2 ERROR:', error);
+  // LAYER 2: WebRTC room-based delivery (backup path)
+  if (webrtcNamespace) {
+    try {
+      console.log('📞 LAYER 2: WebRTC room-based notification to room:', recipientKey);
+      webrtcNamespace.to(recipientKey).emit('send-video-call-invitation', callData);
+      notificationSent = true;
+    } catch (error) {
+      console.error('📞 LAYER 2 ERROR:', error);
+    }
   }
   
-  // LAYER 3: Broadcast fallback with client-side filtering
+  // LAYER 3: Main namespace fallback for Messages.tsx listeners
+  if (recipientMainSocketId) {
+    try {
+      console.log('📞 LAYER 3: Main namespace fallback notification to:', recipientMainSocketId);
+      io.to(recipientMainSocketId).emit('video_call_invitation', callData);
+      notificationSent = true;
+    } catch (error) {
+      console.error('📞 LAYER 3 ERROR:', error);
+    }
+  }
+  
+  // LAYER 4: Broadcast fallback with client-side filtering
   try {
-    console.log('📞 LAYER 3: Broadcast fallback notification');
+    console.log('📞 LAYER 4: Broadcast fallback notification');
     io.emit('video_call_invitation_broadcast', {
       ...callData,
       targetUserId: recipientId.toString()
     });
     notificationSent = true;
   } catch (error) {
-    console.error('📞 LAYER 3 ERROR:', error);
+    console.error('📞 LAYER 4 ERROR:', error);
   }
 
   console.log('📞 NOTIFICATION RESULT:', { notificationSent, recipientOnline: recipientOnlineComputed });
