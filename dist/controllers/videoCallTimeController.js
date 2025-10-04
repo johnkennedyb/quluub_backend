@@ -50,6 +50,16 @@ exports.canMakeVideoCall = async (req, res) => {
   try {
     const { userId1, userId2 } = req.params;
     
+    // Validate user IDs are provided
+    if (!userId1 || !userId2 || userId1 === 'undefined' || userId2 === 'undefined') {
+      console.error('Invalid user IDs provided:', { userId1, userId2 });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid user IDs provided',
+        canCall: false
+      });
+    }
+    
     const record = await VideoCallTime.getOrCreatePairRecord(userId1, userId2);
     
     res.json({
@@ -64,7 +74,8 @@ exports.canMakeVideoCall = async (req, res) => {
     console.error('Error checking video call permission:', error);
     res.status(500).json({ 
       success: false, 
-      message: 'Failed to check video call permission' 
+      message: 'Failed to check video call permission',
+      canCall: false
     });
   }
 };

@@ -22,6 +22,16 @@ const notificationSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  // Structured data for different notification types
+  data: {
+    callerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    callerName: { type: String },
+    recipientId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    recipientName: { type: String },
+    // Add any other relevant data for different notification types
+    matchId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+    messageId: { type: mongoose.Schema.Types.ObjectId, ref: 'Chat' }
+  },
   createdAt: {
     type: Date,
     default: Date.now

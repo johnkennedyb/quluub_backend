@@ -149,7 +149,24 @@ const uploadVideoRecording = async (req, res) => {
     if (!waliEmail) {
       console.log('⚠️ No Wali email found for female user, skipping notification.');
       console.log('⚠️ Female user waliDetails:', femaleUser.waliDetails);
-      return res.json({ success: true, message: 'Recording saved (no Wali notification required)' });
+
+      // Build links based on saved file (multer has already written it)
+      const videoFilename = path.basename(webmPath);
+      const downloadToken = crypto.randomBytes(32).toString('hex');
+      const backendUrl = process.env.BACKEND_PUBLIC_URL || 'https://quluub-backend-1.onrender.com';
+      const frontendUrl = process.env.FRONTEND_PUBLIC_URL || process.env.FRONTEND_URL || 'https://match.quluub.com';
+      const watchLink = `${frontendUrl}/video-viewer/${videoFilename}?token=${downloadToken}`;
+      const downloadLink = `${backendUrl}/api/video-recording/download/${videoFilename}?token=${downloadToken}`;
+
+      return res.json({ 
+        success: true, 
+        message: 'Recording saved (no Wali notification required)',
+        waliNotified: false,
+        waliEmail: null,
+        watchLink,
+        downloadLink,
+        filename: videoFilename
+      });
     }
 
     // Check if WebM file has content before processing
@@ -168,10 +185,12 @@ const uploadVideoRecording = async (req, res) => {
     console.log('📹 Using WebM file directly (no conversion)');
     mp4Path = webmPath;
 
-    // Generate secure download link
+    // Generate secure links
     const videoFilename = path.basename(mp4Path);
     const downloadToken = crypto.randomBytes(32).toString('hex');
-    const backendUrl =  'https://quluub-backend-1.onrender.com';
+    const backendUrl = process.env.BACKEND_PUBLIC_URL || 'https://quluub-backend-1.onrender.com';
+    const frontendUrl = process.env.FRONTEND_PUBLIC_URL || process.env.FRONTEND_URL || 'https://match.quluub.com';
+    const watchLink = `${frontendUrl}/video-viewer/${videoFilename}?token=${downloadToken}`;
     const downloadLink = `${backendUrl}/api/video-recording/download/${videoFilename}?token=${downloadToken}`;
 
     // Use the updated email header and footer components
@@ -231,16 +250,22 @@ const uploadVideoRecording = async (req, res) => {
                   <div style="background-color: #fff3cd; padding: 20px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #ffc107;">
                     <h4 style="margin: 0 0 10px 0; color: #856404;">📹 Video Recording Available</h4>
                     <p style="margin: 0 0 15px 0; color: #856404; line-height: 1.5;">
-                      The complete video call recording is ready for download. Click the button below to securely download the recording for your supervision and review.
+                      The complete video call recording is ready to watch. Click the button below to securely watch the recording online (no download required). If your browser cannot play it, use the fallback download link below.
                     </p>
                     <div style="text-align: center; margin: 15px 0;">
+                      <a href="${watchLink}" 
+                         style="display: inline-block; padding: 12px 24px; background-color: #007bff; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 14px;">
+                        ▶ Watch Video Recording
+                      </a>
+                    </div>
+                    <div style="text-align: center; margin: 8px 0;">
                       <a href="${downloadLink}" 
-                         style="display: inline-block; padding: 12px 24px; background-color: #28a745; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 14px;">
-                        📥 Download Video Recording
+                         style="display: inline-block; padding: 10px 18px; background-color: #28a745; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 12px;">
+                        📥 Fallback: Download Video
                       </a>
                     </div>
                     <p style="margin: 15px 0 0 0; color: #856404; font-size: 12px; text-align: center;">
-                      <em>This link is secure and private. Please do not share with others.</em>
+                      <em>These links are secure and private. Please do not share with others.</em>
                     </p>
                   </div>
                   
@@ -267,7 +292,7 @@ const uploadVideoRecording = async (req, res) => {
     console.log('📧 Email config:', {
       api_url: MAILEROO_API_URL,
       api_key: MAILEROO_API_KEY ? '***HIDDEN***' : 'NOT_SET',
-      from: process.env.EMAIL_USER || 'mail@quluub.com',
+      from: process.env.MAIL_FROM || process.env.EMAIL_USER || 'mail@match.quluub.com',
       to: waliEmail
     });
 
@@ -277,17 +302,22 @@ const uploadVideoRecording = async (req, res) => {
     const { sendEmailViaAPI } = require('../utils/mailerooService');
     console.log('📧 Sending email to:', waliEmail);
     console.log('📧 Email subject:', emailSubject);
-    console.log('📧 Backend download link:', downloadLink);
+    console.log('📧 Frontend watch link:', watchLink);
     
-    const emailResult = await sendEmailViaAPI(waliEmail, emailSubject, emailContent, process.env.EMAIL_USER || 'mail@quluub.com');
+    const emailResult = await sendEmailViaAPI(waliEmail, emailSubject, emailContent);
     
     console.log('📧 Email send result:', emailResult);
     
     if (!emailResult) {
       console.error('❌ Email sending failed');
-      return res.status(500).json({
-        success: false,
-        message: 'Video processed but email notification failed'
+      return res.json({
+        success: true,
+        message: 'Video processed but email notification failed',
+        waliNotified: false,
+        waliEmail: waliEmail,
+        watchLink,
+        downloadLink,
+        filename: videoFilename
       });
     }
     
@@ -297,7 +327,10 @@ const uploadVideoRecording = async (req, res) => {
       success: true,
       message: 'Video recording sent to Wali successfully',
       waliNotified: true,
-      waliEmail: waliEmail
+      waliEmail: waliEmail,
+      watchLink,
+      downloadLink,
+      filename: videoFilename
     });
 
   } catch (error) {
@@ -367,3 +400,118 @@ const downloadVideoRecording = async (req, res) => {
 };
 
 module.exports = { upload, uploadVideoRecording, downloadVideoRecording };
+
+// Stream video recording with Range support (playable in browser)
+const streamVideoRecording = async (req, res) => {
+  try {
+    const { filename } = req.params;
+    const { token } = req.query; // reserved for future validation
+
+    if (!filename || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+      return res.status(400).json({ error: 'Invalid filename' });
+    }
+
+    const filePath = path.join(__dirname, '../uploads/video-recordings', filename);
+    const fsRaw = require('fs');
+
+    // ensure file exists
+    if (!fsRaw.existsSync(filePath)) {
+      return res.status(404).json({ error: 'Video recording not found' });
+    }
+
+    const stat = fsRaw.statSync(filePath);
+    const fileSize = stat.size;
+    const range = req.headers.range;
+    const ext = path.extname(filename).toLowerCase();
+    const contentType = ext === '.webm' ? 'video/webm' : 'video/mp4';
+
+    res.setHeader('Accept-Ranges', 'bytes');
+
+    if (range) {
+      const parts = range.replace(/bytes=/, '').split('-');
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+
+      if (start >= fileSize || end >= fileSize) {
+        res.setHeader('Content-Range', `bytes */${fileSize}`);
+        return res.status(416).end();
+      }
+
+      const chunkSize = (end - start) + 1;
+      const stream = fsRaw.createReadStream(filePath, { start, end });
+      res.writeHead(206, {
+        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+        'Content-Length': chunkSize,
+        'Content-Type': contentType,
+        'Cache-Control': 'private, max-age=604800',
+      });
+      stream.pipe(res);
+    } else {
+      res.writeHead(200, {
+        'Content-Length': fileSize,
+        'Content-Type': contentType,
+        'Cache-Control': 'private, max-age=604800',
+      });
+      fsRaw.createReadStream(filePath).pipe(res);
+    }
+  } catch (error) {
+    console.error('Error streaming video recording:', error);
+    res.status(500).json({ error: 'Failed to stream video recording' });
+  }
+};
+
+// Simple watch page with HTML5 video player pointing to stream endpoint
+const watchVideoRecording = async (req, res) => {
+  try {
+    const { filename } = req.params;
+    const { token } = req.query; // pass-through
+
+    if (!filename || filename.includes('..') || filename.includes('/') || filename.includes('\\')) {
+      return res.status(400).send('Invalid filename');
+    }
+
+    const ext = path.extname(filename).toLowerCase();
+    const contentType = ext === '.webm' ? 'video/webm' : 'video/mp4';
+    const streamUrl = `/api/video-recording/stream/${filename}${token ? `?token=${token}` : ''}`;
+
+    const html = `<!DOCTYPE html>
+      <html lang="en">
+      <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Watch Video Recording</title>
+        <style>
+          body { margin: 0; background: #0f172a; color: #e2e8f0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, Apple Color Emoji, Segoe UI Emoji, Segoe UI Symbol; }
+          .container { max-width: 960px; margin: 0 auto; padding: 24px; }
+          .card { background: #111827; border: 1px solid #1f2937; border-radius: 12px; padding: 16px; }
+          .header { display:flex; justify-content: space-between; align-items:center; margin-bottom: 12px; }
+          .btn { display:inline-block; padding:10px 16px; background:#1d4ed8; color:white; border-radius:8px; text-decoration:none; font-weight:600; }
+          video { width: 100%; height: auto; background: black; border-radius: 8px; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div class="header">
+            <h2>Quluub • Video Call Recording</h2>
+            <a class="btn" href="/api/video-recording/download/${filename}${token ? `?token=${token}` : ''}">Download</a>
+          </div>
+          <div class="card">
+            <video controls playsinline preload="metadata">
+              <source src="${streamUrl}" type="${contentType}">
+              Your browser does not support the video tag.
+            </video>
+          </div>
+        </div>
+      </body>
+      </html>`;
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.status(200).send(html);
+  } catch (error) {
+    console.error('Error rendering watch page:', error);
+    res.status(500).send('Failed to render watch page');
+  }
+};
+
+module.exports.streamVideoRecording = streamVideoRecording;
+module.exports.watchVideoRecording = watchVideoRecording;

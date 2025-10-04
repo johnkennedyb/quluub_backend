@@ -2,6 +2,7 @@ const asyncHandler = require('express-async-handler');
 const { v4: uuidv4 } = require('uuid');
 const User = require('../models/User');
 const Notification = require('../models/Notification');
+const VideoCallTime = require('../models/VideoCallTime');
 
 // @desc    Clear video call notifications
 // @route   DELETE /api/peerjs-video-call/notifications/:sessionId
@@ -36,126 +37,84 @@ exports.initiatePeerJSCall = asyncHandler(async (req, res) => {
     throw new Error('Recipient ID and Session ID are required');
   }
 
-  const caller = await User.findById(callerId).select('fname lname');
-  const recipient = await User.findById(recipientId);
+  const [caller, recipient] = await Promise.all([
+    User.findById(callerId).select('fname lname username'),
+    User.findById(recipientId).select('isOnline lastSeen') // Only fetch what's needed
+  ]);
 
   if (!caller || !recipient) {
-    res.status(404).json({ message: 'User not found' });
-    return;
+    return res.status(404).json({ message: 'User not found' });
+  }
+
+  // --- IMPROVED: Stricter time limit check ---
+  try {
+    const record = await VideoCallTime.getOrCreatePairRecord(callerId, recipientId);
+    if (!record.canMakeVideoCall()) {
+      return res.status(403).json({ // Use 403 Forbidden for access denial
+        message: 'Video call time limit (5 minutes) has been reached for this match.',
+        limitExceeded: true,
+        remainingTime: 0,
+      });
+    }
+  } catch (error) {
+    console.error('Failed to verify video call time limit:', error);
+    // "Fail closed": If the check fails, don't allow the call.
+    return res.status(500).json({
+      message: 'Could not verify video call time limit. Please try again.',
+      limitExceeded: true, // Treat as exceeded
+    });
   }
 
   const io = req.app.get('io');
-  const webrtcNamespace = req.app.get('webrtcNamespace');
   const onlineUsers = req.app.get('onlineUsers');
-  const webrtcUsers = req.app.get('webrtcUsers'); 
+  const callerName = `${caller.fname} ${caller.lname}`;
 
   const callData = {
     callerId: callerId.toString(),
-    callerName: `${caller.fname} ${caller.lname}`,
-    callerUsername: caller.username || '',
+    callerName: callerName,
     recipientId: recipientId.toString(),
     sessionId: sessionId,
-    timestamp: new Date().toISOString(),
-    videoCallData: {
-      callerId: callerId.toString(),
-      callerName: `${caller.fname} ${caller.lname}`,
-      callerUsername: caller.username || '',
-      recipientId: recipientId.toString(),
-      sessionId: sessionId,
-      timestamp: new Date().toISOString(),
-      status: 'pending'
-    },
-    isOutgoing: false
   };
 
-  // Check if notification already exists for this session to prevent duplicates
-  const existingNotification = await Notification.findOne({
-    user: recipientId,
-    type: 'video_call_invitation',
-    relatedId: sessionId
-  });
-
-  if (!existingNotification) {
-    await Notification.create({
+  // --- IMPROVED: Create a structured notification ---
+  // Use findOneAndUpdate with upsert to prevent creating duplicate notifications for the same call
+  await Notification.findOneAndUpdate({
+      user: recipientId,
+      type: 'video_call_invitation',
+      relatedId: sessionId
+    }, {
+      $set: {
         user: recipientId,
         type: 'video_call_invitation',
-        message: `Incoming video call from ${caller.fname} ${caller.lname}`,
+        message: `Incoming video call from ${callerName}`,
         relatedId: sessionId,
-    });
-  }
+        data: {
+          callerId: callerId,
+          callerName: callerName
+        }
+      }
+    }, {
+      upsert: true, // Create the notification if it doesn't exist
+      new: true
+    }
+  );
 
-  // Try to send real-time notification if recipient is online
+  // --- SIMPLIFIED: Online Status Check and Notification ---
   const recipientKey = recipientId.toString();
-  const recipientWebRTCSocketId = webrtcUsers.get(recipientKey);
-  const recipientMainSocketId = onlineUsers.get(recipientKey);
-  
-  // Also check room membership as a reliable backup for online detection
-  const recipientWebRTCRoom = webrtcNamespace?.adapter?.rooms?.get(recipientKey);
-  const recipientMainRoom = io?.sockets?.adapter?.rooms?.get(recipientKey);
-  
-  const recipientOnlineComputed = !!recipientWebRTCSocketId || !!recipientMainSocketId || 
-                                  (!!recipientWebRTCRoom && recipientWebRTCRoom.size > 0) ||
-                                  (!!recipientMainRoom && recipientMainRoom.size > 0);
+  const recipientSocketId = onlineUsers.get(recipientKey);
+  const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+  const recipientOnlineComputed = !!recipientSocketId || (recipient.isOnline && recipient.lastSeen >= fiveMinutesAgo);
 
-  console.log('📞 PEERJS CONTROLLER DEBUG: Notification attempt', {
-    recipientId: recipientKey,
-    recipientWebRTCSocketId,
-    recipientMainSocketId,
-    webrtcUsersSize: webrtcUsers.size,
-    onlineUsersSize: onlineUsers.size,
-    webrtcRoomSize: recipientWebRTCRoom?.size || 0,
-    mainRoomSize: recipientMainRoom?.size || 0,
-    recipientOnline: recipientOnlineComputed
-  });
+  console.log(`📞 Video Call Invitation: ${callerName} -> Recipient ${recipientKey}`);
 
-  let notificationSent = false;
-
-  // LAYER 1: Direct WebRTC namespace notification (primary)
-  if (recipientWebRTCSocketId && webrtcNamespace) {
-    try {
-      console.log('📞 LAYER 1: Direct WebRTC socket notification to:', recipientWebRTCSocketId);
-      webrtcNamespace.to(recipientWebRTCSocketId).emit('send-video-call-invitation', callData);
-      notificationSent = true;
-    } catch (error) {
-      console.error('📞 LAYER 1 ERROR:', error);
-    }
+  if (recipientOnlineComputed) {
+    // --- SIMPLIFIED: Use room-based delivery. It's the most reliable standard. ---
+    // The user's socket should join a room named after their own userId on connection.
+    console.log(`  - Attempting delivery to room: ${recipientKey}`);
+    io.to(recipientKey).emit('video_call_invitation', callData);
+  } else {
+    console.log(`  - Recipient ${recipientKey} appears offline. Notification will be available upon next login.`);
   }
-  
-  // LAYER 2: WebRTC room-based delivery (backup path)
-  if (webrtcNamespace) {
-    try {
-      console.log('📞 LAYER 2: WebRTC room-based notification to room:', recipientKey);
-      webrtcNamespace.to(recipientKey).emit('send-video-call-invitation', callData);
-      notificationSent = true;
-    } catch (error) {
-      console.error('📞 LAYER 2 ERROR:', error);
-    }
-  }
-  
-  // LAYER 3: Main namespace fallback for Messages.tsx listeners
-  if (recipientMainSocketId) {
-    try {
-      console.log('📞 LAYER 3: Main namespace fallback notification to:', recipientMainSocketId);
-      io.to(recipientMainSocketId).emit('video_call_invitation', callData);
-      notificationSent = true;
-    } catch (error) {
-      console.error('📞 LAYER 3 ERROR:', error);
-    }
-  }
-  
-  // LAYER 4: Broadcast fallback with client-side filtering
-  try {
-    console.log('📞 LAYER 4: Broadcast fallback notification');
-    io.emit('video_call_invitation_broadcast', {
-      ...callData,
-      targetUserId: recipientId.toString()
-    });
-    notificationSent = true;
-  } catch (error) {
-    console.error('📞 LAYER 4 ERROR:', error);
-  }
-
-  console.log('📞 NOTIFICATION RESULT:', { notificationSent, recipientOnline: recipientOnlineComputed });
 
   // Clear any existing notifications for this session to prevent duplicates
   await Notification.deleteMany({
@@ -164,10 +123,46 @@ exports.initiatePeerJSCall = asyncHandler(async (req, res) => {
     relatedId: sessionId
   });
 
-  // Always return success - caller can proceed with call setup
-  res.status(200).json({ 
-    message: 'Call invitation sent successfully.', 
+  // Always return success to the caller, so they can enter the "calling" state.
+  res.status(200).json({
+    message: 'Call invitation sent.',
     callData,
     recipientOnline: recipientOnlineComputed
   });
+});
+
+// @desc    Get active video call invitations
+// @route   GET /api/peerjs-video-call/invitations
+// @access  Private
+exports.getActiveInvitations = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+
+  try {
+    // --- IMPROVED: Fetch the latest invitation using the new structure ---
+    // Find the most recent, unread video call invitation within a 30-second window.
+    const thirtySecondsAgo = new Date(Date.now() - 30 * 1000);
+
+    const latestInvitation = await Notification.findOne({
+      user: userId,
+      type: 'video_call_invitation',
+      createdAt: { $gte: thirtySecondsAgo }
+    }).sort({ createdAt: -1 });
+
+    if (latestInvitation && latestInvitation.data) {
+      res.status(200).json({
+        hasPendingCall: true,
+        invitation: {
+          callerName: latestInvitation.data.callerName,
+          callerId: latestInvitation.data.callerId,
+          sessionId: latestInvitation.relatedId,
+          timestamp: latestInvitation.createdAt
+        }
+      });
+    } else {
+      res.status(200).json({ hasPendingCall: false });
+    }
+  } catch (error) {
+    console.error('Error fetching active call invitations:', error);
+    res.status(500).json({ message: 'Failed to fetch invitations' });
+  }
 });

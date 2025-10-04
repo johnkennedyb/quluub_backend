@@ -19,6 +19,15 @@ const protect = async (req, res, next) => {
         return res.status(401).json({ message: 'Not authorized, user not found' });
       }
 
+      // Update user's last seen timestamp on every authenticated API request (fire-and-forget)
+      User.findByIdAndUpdate(decoded.id, { 
+        lastSeen: new Date(),
+        isOnline: true 
+      }).catch(err => {
+        // Silent error handling to avoid blocking the request
+        console.error('Error updating user lastSeen:', err);
+      });
+
       next();
     } catch (error) {
       console.error(error);
