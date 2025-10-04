@@ -66,15 +66,24 @@ const convertToMp4 = (inputPath) => {
       reject(err);
       return;
     }
-
     ffmpeg(inputPath)
       .toFormat('mp4')
       .videoCodec('libx264')
       .audioCodec('aac')
       .outputOptions([
+        // Fast start for progressive download in browsers
         '-movflags', 'faststart',
+        // Reasonable encode speed/quality tradeoff
         '-preset', 'fast',
-        '-crf', '23'
+        // Quality target
+        '-crf', '23',
+        // Max compatibility for older/mobile devices
+        '-pix_fmt', 'yuv420p',
+        '-profile:v', 'baseline',
+        '-level', '3.1',
+        // Audio compatibility
+        '-ac', '2',
+        '-ar', '48000'
       ])
       .on('start', (commandLine) => {
         console.log('🔄 FFmpeg command:', commandLine);
@@ -150,13 +159,22 @@ const uploadVideoRecording = async (req, res) => {
       console.log('⚠️ No Wali email found for female user, skipping notification.');
       console.log('⚠️ Female user waliDetails:', femaleUser.waliDetails);
 
-      // Build links based on saved file (multer has already written it)
-      const videoFilename = path.basename(webmPath);
+      // Try to convert to MP4 for better compatibility (esp. iOS Safari)
+      let preferredFilename = path.basename(webmPath);
+      try {
+        const mp4Out = await convertToMp4(webmPath);
+        mp4Path = mp4Out;
+        preferredFilename = path.basename(mp4Path);
+        console.log('✅ MP4 conversion succeeded (no wali flow):', preferredFilename);
+      } catch (e) {
+        console.warn('⚠️ MP4 conversion failed (no wali flow), using WEBM:', e?.message || e);
+      }
+
       const downloadToken = crypto.randomBytes(32).toString('hex');
       const backendUrl = process.env.BACKEND_PUBLIC_URL || 'https://quluub-backend-1.onrender.com';
       const frontendUrl = process.env.FRONTEND_PUBLIC_URL || process.env.FRONTEND_URL || 'https://match.quluub.com';
-      const watchLink = `${frontendUrl}/video-viewer/${videoFilename}?token=${downloadToken}`;
-      const downloadLink = `${backendUrl}/api/video-recording/download/${videoFilename}?token=${downloadToken}`;
+      const watchLink = `${frontendUrl}/video-viewer/${preferredFilename}?token=${downloadToken}`;
+      const downloadLink = `${backendUrl}/api/video-recording/download/${preferredFilename}?token=${downloadToken}`;
 
       return res.json({ 
         success: true, 
@@ -165,7 +183,7 @@ const uploadVideoRecording = async (req, res) => {
         waliEmail: null,
         watchLink,
         downloadLink,
-        filename: videoFilename
+        filename: preferredFilename
       });
     }
 
@@ -181,9 +199,15 @@ const uploadVideoRecording = async (req, res) => {
     
     console.log(`📹 Processing WebM file (${webmStats.size} bytes)`);
     
-    // Use WebM file directly - no conversion needed
-    console.log('📹 Using WebM file directly (no conversion)');
-    mp4Path = webmPath;
+    // Prefer MP4 for compatibility. Attempt conversion with graceful fallback to WEBM
+    try {
+      const mp4Out = await convertToMp4(webmPath);
+      mp4Path = mp4Out;
+      console.log('✅ MP4 conversion finished, using MP4 for links:', mp4Path);
+    } catch (convErr) {
+      console.warn('⚠️ MP4 conversion failed, falling back to WEBM:', convErr?.message || convErr);
+      mp4Path = webmPath;
+    }
 
     // Generate secure links
     const videoFilename = path.basename(mp4Path);
@@ -364,9 +388,22 @@ const downloadVideoRecording = async (req, res) => {
 
     // For now, allow access without token validation (can be enhanced later)
     // In production, you might want to validate the token against a database
-    
-    const filePath = path.join(__dirname, '../uploads/video-recordings', filename);
-    
+    let filePath = path.join(__dirname, '../uploads/video-recordings', filename);
+    const fsNode = require('fs');
+    const reqExt = path.extname(filename).toLowerCase();
+
+    // If MP4 requested but missing, convert from WEBM on-demand
+    if (!fsNode.existsSync(filePath) && reqExt === '.mp4') {
+      const webmCandidate = filePath.replace(/\.mp4$/i, '.webm');
+      if (fsNode.existsSync(webmCandidate)) {
+        try {
+          filePath = await convertToMp4(webmCandidate);
+        } catch (e) {
+          console.warn('⚠️ On-demand conversion failed (download):', e?.message || e);
+        }
+      }
+    }
+
     // Check if file exists
     try {
       await fs.access(filePath);
@@ -378,7 +415,7 @@ const downloadVideoRecording = async (req, res) => {
     const stats = await fs.stat(filePath);
     
     // Determine content type based on file extension
-    const ext = path.extname(filename).toLowerCase();
+    const ext = path.extname(filePath).toLowerCase();
     const contentType = ext === '.webm' ? 'video/webm' : 'video/mp4';
     
     // Set appropriate headers
@@ -388,7 +425,7 @@ const downloadVideoRecording = async (req, res) => {
     res.setHeader('Cache-Control', 'no-cache');
     
     // Stream the file
-    const fileStream = require('fs').createReadStream(filePath);
+    const fileStream = fsNode.createReadStream(filePath);
     fileStream.pipe(res);
     
     console.log(` Video recording downloaded: ${filename}`);
@@ -411,8 +448,21 @@ const streamVideoRecording = async (req, res) => {
       return res.status(400).json({ error: 'Invalid filename' });
     }
 
-    const filePath = path.join(__dirname, '../uploads/video-recordings', filename);
+    let filePath = path.join(__dirname, '../uploads/video-recordings', filename);
     const fsRaw = require('fs');
+    const reqExt = path.extname(filename).toLowerCase();
+
+    // If MP4 requested but missing, convert from WEBM on-demand
+    if (!fsRaw.existsSync(filePath) && reqExt === '.mp4') {
+      const webmCandidate = filePath.replace(/\.mp4$/i, '.webm');
+      if (fsRaw.existsSync(webmCandidate)) {
+        try {
+          filePath = await convertToMp4(webmCandidate);
+        } catch (e) {
+          console.warn('⚠️ On-demand conversion failed (stream):', e?.message || e);
+        }
+      }
+    }
 
     // ensure file exists
     if (!fsRaw.existsSync(filePath)) {
@@ -422,7 +472,7 @@ const streamVideoRecording = async (req, res) => {
     const stat = fsRaw.statSync(filePath);
     const fileSize = stat.size;
     const range = req.headers.range;
-    const ext = path.extname(filename).toLowerCase();
+    const ext = path.extname(filePath).toLowerCase();
     const contentType = ext === '.webm' ? 'video/webm' : 'video/mp4';
 
     res.setHeader('Accept-Ranges', 'bytes');
