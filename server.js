@@ -95,19 +95,27 @@ const peerServer = ExpressPeerServer(server, {
 app.use('/peerjs', peerServer);
 
 const corsOptions = {
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    // Allow all origins for maximum compatibility
-    callback(null, true);
-  },
+  origin: [
+    'http://localhost:8080',
+    'http://localhost:5173',
+    'http://localhost:3000',
+    'https://quluub-reborn-project-33.vercel.app',
+    'https://preview--quluub-reborn-project-99.lovable.app',
+    'https://love.quluub.com',
+    'https://match.quluub.com'
+  ],
   methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
   credentials: true,
-  optionsSuccessStatus: 204,
+  optionsSuccessStatus: 200,
   preflightContinue: false
 };
 
 app.use(cors(corsOptions));
+
+// Handle preflight requests explicitly
+app.options('*', cors(corsOptions));
+
 // Enable HTTP compression for faster API responses
 app.use(compression({ level: 6 }));
 app.use(express.json());
