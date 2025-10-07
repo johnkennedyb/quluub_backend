@@ -432,9 +432,9 @@ io.on('connection', (socket) => {
       console.warn('⚠️ Failed to compute remainingAtStart:', e?.message || e);
     }
 
-    // Enforce hard 5-minute pair limit: if none left, reject immediately
-    if (remainingAtStart <= 0) {
-      console.log('🚫 Video call time limit exceeded for pair:', { callerId, recipientId });
+    // More lenient time limit check: only block if significantly exceeded (allow some grace)
+    if (remainingAtStart < -30) { // Allow 30 seconds grace period
+      console.log('🚫 Video call time limit significantly exceeded for pair:', { callerId, recipientId, remainingAtStart });
       const payload = { sessionId, remainingAtStart: 0, message: 'Video call time limit exceeded for this match' };
       const callerSocketId = onlineUsers.get(callerId?.toString());
       const recipientSocketId = onlineUsers.get(recipientId?.toString());
@@ -443,6 +443,9 @@ io.on('connection', (socket) => {
       io.to(callerId?.toString()).emit('video_call_time_exceeded', payload);
       io.to(recipientId?.toString()).emit('video_call_time_exceeded', payload);
       return; // Do not proceed with acceptance
+    } else if (remainingAtStart <= 0) {
+      console.log('⚠️ Video call time limit reached but allowing call with grace period:', { callerId, recipientId, remainingAtStart });
+      remainingAtStart = Math.max(30, remainingAtStart); // Give at least 30 seconds
     }
     
     // LAYER 1: Notify caller via direct socket ID from onlineUsers map

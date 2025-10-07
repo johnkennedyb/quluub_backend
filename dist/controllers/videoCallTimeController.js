@@ -53,29 +53,43 @@ exports.canMakeVideoCall = async (req, res) => {
     // Validate user IDs are provided
     if (!userId1 || !userId2 || userId1 === 'undefined' || userId2 === 'undefined') {
       console.error('Invalid user IDs provided:', { userId1, userId2 });
-      return res.status(400).json({ 
+      return res.status(200).json({ // Return 200 with default values instead of 400
         success: false, 
         message: 'Invalid user IDs provided',
-        canCall: false
+        canCall: true, // Default to allowing call
+        remainingTime: 300 // Default 5 minutes
       });
     }
     
     const record = await VideoCallTime.getOrCreatePairRecord(userId1, userId2);
+    const canCall = record.canMakeVideoCall();
+    const remainingTime = record.getRemainingTime();
+    
+    console.log(`📊 Video call time check for ${userId1}-${userId2}:`, {
+      totalTimeSpent: record.totalTimeSpent,
+      remainingTime,
+      canCall,
+      limitExceeded: record.limitExceeded
+    });
     
     res.json({
       success: true,
-      canCall: record.canMakeVideoCall(),
-      remainingTime: record.getRemainingTime(),
-      message: record.canMakeVideoCall() 
-        ? `You have ${Math.floor(record.getRemainingTime() / 60)} minutes and ${record.getRemainingTime() % 60} seconds remaining`
+      canCall,
+      remainingTime,
+      totalTimeSpent: record.totalTimeSpent,
+      limitExceeded: record.limitExceeded,
+      message: canCall 
+        ? `You have ${Math.floor(remainingTime / 60)} minutes and ${remainingTime % 60} seconds remaining`
         : 'Video call time limit exceeded for this match'
     });
   } catch (error) {
     console.error('Error checking video call permission:', error);
-    res.status(500).json({ 
+    // Return permissive defaults on error to avoid blocking calls
+    res.status(200).json({ 
       success: false, 
-      message: 'Failed to check video call permission',
-      canCall: false
+      message: 'Failed to check video call permission - defaulting to allow',
+      canCall: true, // Default to allowing call
+      remainingTime: 300 // Default 5 minutes
     });
   }
 };
