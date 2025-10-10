@@ -293,28 +293,30 @@ io.on('connection', (socket) => {
     const userIdStr = userId.toString();
     
     if (isOnline) {
-      // Add to online users if not already there
-      if (!onlineUsers.has(userIdStr)) {
+      // Only update if user wasn't already online (prevent duplicate broadcasts)
+      const wasAlreadyOnline = onlineUsers.has(userIdStr);
+      
+      if (!wasAlreadyOnline) {
         onlineUsers.set(userIdStr, socket.id);
+        
+        // Update database immediately
+        try {
+          await User.findByIdAndUpdate(userIdStr, { 
+            lastSeen: new Date(),
+            isOnline: true 
+          });
+          console.log('✅ Explicit online status update: User', userIdStr, 'marked as online');
+        } catch (error) {
+          console.error('❌ Error in explicit online status update:', error);
+        }
+        
+        // Only broadcast if user wasn't already online
+        const onlineUsersList = Array.from(onlineUsers.keys());
+        io.emit('getOnlineUsers', onlineUsersList);
+        
+        // Notify all clients that this user is now online (only once)
+        socket.broadcast.emit('user-came-online', { userId: userIdStr, timestamp: new Date().toISOString() });
       }
-      
-      // Update database immediately
-      try {
-        await User.findByIdAndUpdate(userIdStr, { 
-          lastSeen: new Date(),
-          isOnline: true 
-        });
-        console.log('✅ Explicit online status update: User', userIdStr, 'marked as online');
-      } catch (error) {
-        console.error('❌ Error in explicit online status update:', error);
-      }
-      
-      // Broadcast updated online users list
-      const onlineUsersList = Array.from(onlineUsers.keys());
-      io.emit('getOnlineUsers', onlineUsersList);
-      
-      // Notify all clients that this user is now online
-      socket.broadcast.emit('user-came-online', { userId: userIdStr, timestamp: new Date().toISOString() });
     }
   });
 
@@ -543,10 +545,35 @@ io.on('connection', (socket) => {
   // Handle call termination - broadcast to both participants (with ack)
   socket.on('end-video-call', async (data, ack) => {
     const { sessionId, userId, participantId, duration } = data;
+    // Resolve participantId if missing using activeCalls map
+    let resolvedParticipantId = participantId;
+    try {
+      if ((!resolvedParticipantId || typeof resolvedParticipantId !== 'string') && sessionId && activeCalls.has(sessionId)) {
+        const active = activeCalls.get(sessionId);
+        if (active) {
+          // Determine the other participant based on who sent the end event
+          const callerIdStr = active.callerId?.toString();
+          const recipientIdStr = active.recipientId?.toString();
+          const userIdStr = userId?.toString();
+          if (userIdStr && callerIdStr && recipientIdStr) {
+            resolvedParticipantId = userIdStr === callerIdStr ? recipientIdStr : callerIdStr;
+          } else {
+            resolvedParticipantId = resolvedParticipantId || recipientIdStr || callerIdStr;
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('⚠️ Failed to resolve participantId from activeCalls:', e?.message || e);
+    }
+    if (!resolvedParticipantId) {
+      console.warn('⚠️ end-video-call received without participantId and could not resolve from session. Data:', data);
+      try { if (typeof ack === 'function') ack({ ok: false, error: 'Missing participantId' }); } catch {}
+      return;
+    }
     
     try {
       const VideoCallTime = require('./models/VideoCallTime');
-      const videoCallRecord = await VideoCallTime.getOrCreatePairRecord(userId, participantId);
+      const videoCallRecord = await VideoCallTime.getOrCreatePairRecord(userId, resolvedParticipantId);
       
       // Enhanced logging for debugging
       console.log('⏱️ Ending video call with data:', data);
@@ -585,8 +612,8 @@ io.on('connection', (socket) => {
         
         // If the limit has been exceeded, notify both participants
         if (videoCallRecord.limitExceeded) {
-          console.log('🚫 Video call time limit exceeded for pair:', { userId, participantId });
-          const participants = [userId.toString(), participantId.toString()];
+          console.log('🚫 Video call time limit exceeded for pair:', { userId, participantId: resolvedParticipantId });
+          const participants = [userId.toString(), resolvedParticipantId.toString()];
           participants.forEach(participantId => {
             const participantSocketId = onlineUsers.get(participantId);
             const payload = { 
@@ -608,7 +635,7 @@ io.on('connection', (socket) => {
       }
       
       // Broadcast call end to both participants (avoid duplicates)
-      const participants = [userId.toString(), participantId.toString()];
+      const participants = [userId.toString(), resolvedParticipantId.toString()];
       const notifiedSockets = new Set();
       
       participants.forEach(participantId => {
@@ -1016,6 +1043,11 @@ webrtcNamespace.on('connection', (socket) => {
       callerId: data.callerId
     });
   });
+
+
+
+
+
 
   socket.on('disconnect', async () => {
     let userIdToUpdate;

@@ -116,12 +116,7 @@ exports.initiatePeerJSCall = asyncHandler(async (req, res) => {
     console.log(`  - Recipient ${recipientKey} appears offline. Notification will be available upon next login.`);
   }
 
-  // Clear any existing notifications for this session to prevent duplicates
-  await Notification.deleteMany({
-    user: callerId,
-    type: 'video_call_invitation',
-    relatedId: sessionId
-  });
+  // No need to clear caller's notifications - they shouldn't have any for this session
 
   // Always return success to the caller, so they can enter the "calling" state.
   res.status(200).json({
