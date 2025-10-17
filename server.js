@@ -20,7 +20,7 @@ const waliRoutes = require('./routes/waliRoutes');
 const feedRoutes = require('./routes/feedRoutes');
 const monthlyUsageRoutes = require('./routes/monthlyUsageRoutes');
 const dashboardRoutes = require('./routes/dashboard');
-const peerjsRoutes = require('./routes/peerjsRoutes');
+const getstreamVideoCallRoutes = require('./routes/getstreamVideoCallRoutes');
 const videoRecordingRoutes = require('./routes/videoRecordingRoutes');
 const videoCallTimeRoutes = require('./routes/videoCallTime');
 const cors = require('cors');
@@ -37,62 +37,8 @@ dotenv.config({ path: './env (1)' });
 
 connectDB();
 
-const { ExpressPeerServer } = require('peer');
 const app = express();
 const server = http.createServer(app);
-
-const peerServer = ExpressPeerServer(server, {
-  debug: process.env.NODE_ENV !== 'production',
-  path: '/',
-  allow_discovery: true,
-  proxied: true,
-  cors: {
-    origin: [
-      'https://quluub-reborn-project-33.vercel.app',
-      'http://localhost:8080',
-      'http://localhost:5173',
-      'https://preview--quluub-reborn-project-99.lovable.app',
-      'https://love.quluub.com',
-      'https://match.quluub.com', // Added production frontend
-
-    ],
-    credentials: true
-  },
-  iceServers: [
-    // Multiple Google STUN servers for better reliability
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    { urls: 'stun:stun2.l.google.com:19302' },
-    { urls: 'stun:stun3.l.google.com:19302' },
-    { urls: 'stun:stun4.l.google.com:19302' },
-    
-    // Additional reliable STUN servers
-    { urls: 'stun:stun.stunprotocol.org:3478' },
-    { urls: 'stun:stun.voiparound.com' },
-    { urls: 'stun:stun.voipbuster.com' },
-    
-    // Free TURN servers (fallback)
-    {
-      urls: 'turn:openrelay.metered.ca:80',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    },
-    {
-      urls: 'turn:openrelay.metered.ca:443',
-      username: 'openrelayproject',
-      credential: 'openrelayproject',
-    },
-    
-    // Custom TURN server if configured
-    ...(process.env.TURN_URL ? [{
-      urls: process.env.TURN_URL,
-      username: process.env.TURN_USERNAME,
-      credential: process.env.TURN_PASSWORD,
-    }] : [])
-  ]
-});
-
-app.use('/peerjs', peerServer);
 
 const corsOptions = {
   origin: [
@@ -160,18 +106,14 @@ const io = new Server(server, {
 
 // Initialize user tracking maps
 let onlineUsers = new Map();
-let webrtcUsers = new Map();
-// Track active calls by sessionId to compute duration server-side
-let activeCalls = new Map();
+// Track active calls by sessionId to compute duration server-side (legacy - removed for PeerJS)
+// let activeCalls = new Map();
 
 // Attach Socket.IO instance to Express app for route access
 app.set('io', io);
 app.set('onlineUsers', onlineUsers);
 
-// Create WebRTC namespace for video call functionality
-const webrtcNamespace = io.of('/webrtc');
-app.set('webrtcNamespace', webrtcNamespace);
-app.set('webrtcUsers', webrtcUsers);
+// Remove legacy WebRTC namespace (PeerJS/Daily) - GetStream uses main namespace only
 
 
 // Socket authentication middleware for MAIN namespace (video calls, messages, etc.)
@@ -223,29 +165,7 @@ io.use(async (socket, next) => {
   }
 });
 
-// Socket.IO authentication middleware for WebRTC namespace
-webrtcNamespace.use(async (socket, next) => {
-  try {
-    const token = socket.handshake.auth.token;
-    if (!token) {
-      return next(new Error('Authentication error'));
-    }
-
-    // Verify JWT token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const user = await User.findById(decoded.id).select('-password');
-    if (!user) {
-      return next(new Error('User not found'));
-    }
-
-    socket.userId = user._id.toString();
-    socket.user = user;
-    next();
-  } catch (error) {
-    console.error('❌ WebRTC namespace socket authentication error:', error.message);
-    next(new Error('Authentication error'));
-  }
-});
+// Removed WebRTC namespace auth middleware
 
 // Main namespace connection (for general app functionality)
 io.on('connection', (socket) => {
@@ -334,471 +254,90 @@ io.on('connection', (socket) => {
   // to prevent duplicate notification systems and ensure single source of truth
 
   // Handle call rejection
-  socket.on('reject-video-call', (data) => {
-    const { sessionId, callerId, reason } = data;
-    
-    // Notify caller that call was rejected
-    const callerSocketId = onlineUsers.get(callerId.toString());
-    if (callerSocketId) {
-      io.to(callerSocketId).emit('video_call_rejected', {
-        sessionId,
-        reason,
-        message: reason === 'busy' ? 'User is currently busy' : 'Call was declined'
-      });
-      // Emit call status update for activity feed
-      io.to(callerSocketId).emit('call-status-update', {
-        sessionId,
-        status: 'declined',
-        callerId: callerId,
-        otherUserName: data.recipientName || 'Unknown',
-        otherUserUsername: data.recipientUsername || 'Unknown'
-      });
-    }
-    
-    // Also send to caller's room
-    io.to(callerId.toString()).emit('video_call_rejected', {
-      sessionId,
-      reason,
-      message: reason === 'busy' ? 'User is currently busy' : 'Call was declined'
-    });
-    // Emit call status update for activity feed
-    io.to(callerId.toString()).emit('call-status-update', {
-      sessionId,
-      status: 'declined',
-      callerId: callerId,
-      otherUserName: data.recipientName || 'Unknown',
-      otherUserUsername: data.recipientUsername || 'Unknown'
-    });
+  // Removed legacy reject-video-call handler (PeerJS/Daily)
 
-    // Clear any pending invitation notifications for this session on reject
+  // Removed legacy cancel-video-call handler (PeerJS/Daily)
+
+  // ===== GetStream session join (accept call) =====
+  socket.on('getstream-session-join', async (data) => {
     try {
-      const Notification = require('./models/Notification');
-      Notification.deleteMany({
-        type: 'video_call_invitation',
-        relatedId: sessionId
-      }).catch(() => {});
-    } catch (e) {
-      console.warn('⚠️ Failed to clear notifications on reject-video-call:', e?.message || e);
-    }
-  });
+      const { sessionId, participantId, participantName, hostId } = data || {};
+      if (!sessionId || !hostId || !participantId) return;
 
-  // Handle call cancellation
-  socket.on('cancel-video-call', (data) => {
-    const { sessionId, callerId, recipientId } = data;
-    
-    // Notify recipient that call was canceled
-    const recipientSocketId = onlineUsers.get(recipientId.toString());
-    if (recipientSocketId) {
-      io.to(recipientSocketId).emit('video_call_canceled', {
-        sessionId,
-        callerId
-      });
-    }
-    
-    // Also send to recipient's room as a backup
-    io.to(recipientId.toString()).emit('video_call_canceled', {
-      sessionId,
-      callerId
-    });
+      // Notify host/caller that participant accepted
+      const hostSocketId = onlineUsers.get(hostId?.toString());
+      const payload = { sessionId, recipientId: participantId, recipientName: participantName };
+      if (hostSocketId) io.to(hostSocketId).emit('getstream_call_accepted', payload);
+      io.to(hostId?.toString()).emit('getstream_call_accepted', payload);
 
-    // Clear any pending invitation notifications for this session
-    try {
-      const Notification = require('./models/Notification');
-      Notification.deleteMany({
-        type: 'video_call_invitation',
-        relatedId: sessionId
-      }).catch(() => {});
-    } catch (e) {
-      console.warn('⚠️ Failed to clear notifications on cancel-video-call:', e?.message || e);
-    }
-  });
-
-  // Handle call acceptance - unified handler for both event names
-  socket.on('accept-call', async (data) => {
-    const { sessionId, recipientId, recipientName, callerId } = data;
-    console.log('📞 Call accepted by recipient:', { sessionId, recipientId, callerId });
-    console.log('📞 Current online users:', Array.from(onlineUsers.keys()));
-    const startAt = new Date().toISOString();
-    const serverNowMs = Date.now();
-    let remainingAtStart = 300;
-    
-    // Enhanced logging for video call time tracking
-    console.log('⏱️ Checking video call time limit for pair:', { callerId, recipientId });
-    
-    try {
-      const VideoCallTime = require('./models/VideoCallTime');
-      const record = await VideoCallTime.getOrCreatePairRecord(callerId, recipientId);
-      remainingAtStart = record.getRemainingTime();
-      console.log('⏱️ Remaining time at call start:', remainingAtStart, 'seconds');
-    } catch (e) {
-      console.warn('⚠️ Failed to compute remainingAtStart:', e?.message || e);
-    }
-
-    // More lenient time limit check: only block if significantly exceeded (allow some grace)
-    if (remainingAtStart < -30) { // Allow 30 seconds grace period
-      console.log('🚫 Video call time limit significantly exceeded for pair:', { callerId, recipientId, remainingAtStart });
-      const payload = { sessionId, remainingAtStart: 0, message: 'Video call time limit exceeded for this match' };
-      const callerSocketId = onlineUsers.get(callerId?.toString());
-      const recipientSocketId = onlineUsers.get(recipientId?.toString());
-      if (callerSocketId) io.to(callerSocketId).emit('video_call_time_exceeded', payload);
-      if (recipientSocketId) io.to(recipientSocketId).emit('video_call_time_exceeded', payload);
-      io.to(callerId?.toString()).emit('video_call_time_exceeded', payload);
-      io.to(recipientId?.toString()).emit('video_call_time_exceeded', payload);
-      return; // Do not proceed with acceptance
-    } else if (remainingAtStart <= 0) {
-      console.log('⚠️ Video call time limit reached but allowing call with grace period:', { callerId, recipientId, remainingAtStart });
-      remainingAtStart = Math.max(30, remainingAtStart); // Give at least 30 seconds
-    }
-    
-    // LAYER 1: Notify caller via direct socket ID from onlineUsers map
-    const callerSocketId = onlineUsers.get(callerId?.toString());
-    if (callerSocketId) {
-      io.to(callerSocketId).emit('call_accepted', {
-        sessionId,
-        recipientId,
-        recipientName,
-        callerId
-      });
-      console.log('✅ Layer 1: Notified caller via socket ID:', callerSocketId);
-
-      // Also send synchronized start to caller via direct socket
-      io.to(callerSocketId).emit('call_started', {
-        sessionId,
-        startAt,
-        remainingAtStart,
-        callerId,
-        recipientId,
-        serverNowMs
-      });
-    } else {
-      console.warn('⚠️ Caller socket ID not found in onlineUsers map');
-    }
-    
-    // LAYER 2: Send to caller's room as backup
-    io.to(callerId?.toString()).emit('call_accepted', {
-      sessionId,
-      recipientId,
-      recipientName,
-      callerId
-    });
-    console.log('✅ Layer 2: Notified caller via room:', callerId);
-
-    // As backup, send start event to caller's room
-    io.to(callerId?.toString()).emit('call_started', {
-      sessionId,
-      startAt,
-      remainingAtStart,
-      callerId,
-      recipientId,
-      serverNowMs
-    });
-    
-    // LAYER 3: Broadcast to all sockets (will be filtered client-side by sessionId)
-    io.emit('call_accepted', {
-      sessionId,
-      recipientId,
-      recipientName,
-      callerId
-    });
-    console.log('✅ Layer 3: Broadcast call_accepted to all clients');
-
-    // Notify recipient as well (direct + room) with call_started
-    const recipientSocketId = onlineUsers.get(recipientId?.toString());
-    if (recipientSocketId) {
-      io.to(recipientSocketId).emit('call_started', { sessionId, startAt, remainingAtStart, callerId, recipientId, serverNowMs });
-    }
-    io.to(recipientId?.toString()).emit('call_started', { sessionId, startAt, remainingAtStart, callerId, recipientId, serverNowMs });
-
-    // Record server-side start time for accurate duration computation
-    try {
-      activeCalls.set(sessionId, {
-        callerId: callerId?.toString(),
-        recipientId: recipientId?.toString(),
-        startAtMs: Date.parse(startAt),
-        remainingAtStart
-      });
-    } catch (e) {
-      console.warn('⚠️ Failed to store active call session:', e?.message || e);
-    }
-
-    // Clear any pending invitation notifications for this session on accept
-    try {
-      const Notification = require('./models/Notification');
-      Notification.deleteMany({
-        type: 'video_call_invitation',
-        relatedId: sessionId
-      }).catch(() => {});
-    } catch (e) {
-      console.warn('⚠️ Failed to clear notifications on accept-call:', e?.message || e);
-    }
-  });
-
-  // Legacy handler for backward compatibility
-  socket.on('accept-video-call', (data) => {
-    io.to(data.callerId).emit('video-call-accepted', {
-      callerId: data.callerId,
-      recipientId: data.recipientId,
-      sessionId: data.sessionId
-    });
-  });
-
-  // Handle call termination - broadcast to both participants (with ack)
-  socket.on('end-video-call', async (data, ack) => {
-    const { sessionId, userId, participantId, duration } = data;
-    // Resolve participantId if missing using activeCalls map
-    let resolvedParticipantId = participantId;
-    try {
-      if ((!resolvedParticipantId || typeof resolvedParticipantId !== 'string') && sessionId && activeCalls.has(sessionId)) {
-        const active = activeCalls.get(sessionId);
-        if (active) {
-          // Determine the other participant based on who sent the end event
-          const callerIdStr = active.callerId?.toString();
-          const recipientIdStr = active.recipientId?.toString();
-          const userIdStr = userId?.toString();
-          if (userIdStr && callerIdStr && recipientIdStr) {
-            resolvedParticipantId = userIdStr === callerIdStr ? recipientIdStr : callerIdStr;
-          } else {
-            resolvedParticipantId = resolvedParticipantId || recipientIdStr || callerIdStr;
-          }
-        }
-      }
-    } catch (e) {
-      console.warn('⚠️ Failed to resolve participantId from activeCalls:', e?.message || e);
-    }
-    if (!resolvedParticipantId) {
-      console.warn('⚠️ end-video-call received without participantId and could not resolve from session. Data:', data);
-      try { if (typeof ack === 'function') ack({ ok: false, error: 'Missing participantId' }); } catch {}
-      return;
-    }
-    
-    try {
-      const VideoCallTime = require('./models/VideoCallTime');
-      const videoCallRecord = await VideoCallTime.getOrCreatePairRecord(userId, resolvedParticipantId);
-      
-      // Enhanced logging for debugging
-      console.log('⏱️ Ending video call with data:', data);
-      console.log('⏱️ Current video call record:', {
-        totalTimeSpent: videoCallRecord.totalTimeSpent,
-        maxAllowedTime: videoCallRecord.maxAllowedTime,
-        limitExceeded: videoCallRecord.limitExceeded,
-        remainingTime: videoCallRecord.getRemainingTime()
-      });
-      
-      // Compute server-side duration when possible
-      let serverMeasured = 0;
-      const active = sessionId ? activeCalls.get(sessionId) : null;
-      if (active && active.startAtMs) {
-        serverMeasured = Math.max(0, Math.floor((Date.now() - active.startAtMs) / 1000));
-        activeCalls.delete(sessionId);
-      }
-      const clientDuration = typeof duration === 'number' ? duration : 0;
-      // Use the longest credible duration
-      let finalDuration = Math.max(clientDuration, serverMeasured);
-      
-      // Cap to remaining time so we don't exceed the 5-minute budget
-      const remainingBefore = videoCallRecord.getRemainingTime();
-      if (finalDuration > remainingBefore) finalDuration = remainingBefore;
-      
-      // Enhanced time tracking with validation
-      if (finalDuration > 0) {
-        const session = videoCallRecord.addCallTime(finalDuration, 'video');
-        await videoCallRecord.save();
-        console.log('✅ Tracked video call time:', { 
-          sessionId, 
-          finalDuration, 
-          remainingAfter: videoCallRecord.getRemainingTime(),
-          limitExceeded: videoCallRecord.limitExceeded
-        });
-        
-        // If the limit has been exceeded, notify both participants
-        if (videoCallRecord.limitExceeded) {
-          console.log('🚫 Video call time limit exceeded for pair:', { userId, participantId: resolvedParticipantId });
-          const participants = [userId.toString(), resolvedParticipantId.toString()];
-          participants.forEach(participantId => {
-            const participantSocketId = onlineUsers.get(participantId);
-            const payload = { 
-              sessionId, 
-              remainingAtStart: 0, 
-              message: 'Video call time limit exceeded for this match. No more video calls allowed.' 
-            };
-            
-            if (participantSocketId) {
-              io.to(participantSocketId).emit('video_call_time_exceeded', payload);
-            }
-            
-            // Also send to room as backup
-            io.to(participantId).emit('video_call_time_exceeded', payload);
-          });
-        }
-      } else {
-        console.log('ℹ️ No call duration to track (finalDuration=0).', { sessionId, clientDuration, serverMeasured });
-      }
-      
-      // Broadcast call end to both participants (avoid duplicates)
-      const participants = [userId.toString(), resolvedParticipantId.toString()];
-      const notifiedSockets = new Set();
-      
-      participants.forEach(participantId => {
-        const participantSocketId = onlineUsers.get(participantId);
-        if (participantSocketId && !notifiedSockets.has(participantSocketId)) {
-          io.to(participantSocketId).emit('video_call_ended', {
-            sessionId,
-            endedBy: userId,
-            timestamp: new Date().toISOString(),
-            totalTimeSpent: videoCallRecord.totalTimeSpent,
-            remainingTime: videoCallRecord.getRemainingTime(),
-            limitExceeded: videoCallRecord.limitExceeded
-          });
-          notifiedSockets.add(participantSocketId);
-        }
-        
-        // Only send to room if no direct socket connection was found
-        if (!participantSocketId) {
-          io.to(participantId).emit('video_call_ended', {
-            sessionId,
-            endedBy: userId,
-            timestamp: new Date().toISOString(),
-            totalTimeSpent: videoCallRecord.totalTimeSpent,
-            remainingTime: videoCallRecord.getRemainingTime(),
-            limitExceeded: videoCallRecord.limitExceeded
-          });
-        }
-      });
-      
-      // Clear any pending invitation notifications for this session on end
+      // Clear any pending professional session notifications
       try {
         const Notification = require('./models/Notification');
         Notification.deleteMany({
-          type: 'video_call_invitation',
-          relatedId: sessionId
+          type: 'getstream_video_call_invitation',
+          'data.sessionId': sessionId
         }).catch(() => {});
-      } catch (e) {
-        console.warn('⚠️ Failed to clear notifications on end-video-call:', e?.message || e);
-      }
-      
-      // Acknowledge success back to client after persisting time
-      try {
-        if (typeof ack === 'function') {
-          ack({
-            ok: true,
-            sessionId,
-            totalTimeSpent: videoCallRecord.totalTimeSpent,
-            remainingTime: videoCallRecord.getRemainingTime(),
-            limitExceeded: videoCallRecord.limitExceeded
-          });
-        }
       } catch {}
-      
-    } catch (error) {
-      console.error('Error handling video call end:', error);
-      // Acknowledge error back to client
-      try {
-        if (typeof ack === 'function') {
-          ack({ ok: false, error: error?.message || 'Failed to end video call' });
-        }
-      } catch {}
+    } catch (e) {
+      console.warn('getstream-session-join handler error:', e?.message || e);
     }
   });
 
-  // Handle peer-call-ended event from PeerJS service
-  socket.on('peer-call-ended', async (data) => {
-    
-    // Check if data exists and has userId
-    if (!data || !data.userId) {
-      console.error('❌ peer-call-ended: Invalid data received:', data);
-      return;
-    }
-    
-    const { userId, sessionId, participantId } = data;
-    
-    // Enhanced logging for debugging
-    console.log('⏱️ Peer call ended with data:', data);
-    
-    // If we have sessionId and participantId, use the proper video_call_ended event
-    if (sessionId && participantId) {
-      // Track call time before notifying participants
-      try {
-        const VideoCallTime = require('./models/VideoCallTime');
-        const videoCallRecord = await VideoCallTime.getOrCreatePairRecord(userId, participantId);
-        
-        // Compute server-side duration when possible
-        let serverMeasured = 0;
-        const active = sessionId ? activeCalls.get(sessionId) : null;
-        if (active && active.startAtMs) {
-          serverMeasured = Math.max(0, Math.floor((Date.now() - active.startAtMs) / 1000));
-          activeCalls.delete(sessionId);
-        }
-        
-        // Enhanced time tracking with validation
-        if (serverMeasured > 0) {
-          const remainingBefore = videoCallRecord.getRemainingTime();
-          let finalDuration = serverMeasured;
-          // Cap to remaining time so we don't exceed the 5-minute budget
-          if (finalDuration > remainingBefore) finalDuration = remainingBefore;
-          
-          const session = videoCallRecord.addCallTime(finalDuration, 'video');
-          await videoCallRecord.save();
-          console.log('✅ Tracked video call time on peer-call-ended:', { 
-            sessionId, 
-            finalDuration, 
-            remainingAfter: videoCallRecord.getRemainingTime(),
-            limitExceeded: videoCallRecord.limitExceeded
-          });
-        }
-      } catch (error) {
-        console.error('Error tracking video call time on peer-call-ended:', error);
-      }
-      
-      const participants = [userId.toString(), participantId.toString()];
-      const notifiedSockets = new Set();
-      
+  // ===== GetStream call end =====
+  socket.on('getstream-video-call-end', async (data) => {
+    try {
+      const { sessionId, callerId, recipientId } = data || {};
+      if (!sessionId || !callerId || !recipientId) return;
+
+      const participants = [callerId.toString(), recipientId.toString()];
+      const notified = new Set();
+
       participants.forEach(pid => {
-        const participantSocketId = onlineUsers.get(pid);
-        if (participantSocketId && !notifiedSockets.has(participantSocketId)) {
-          io.to(participantSocketId).emit('video_call_ended', {
-            sessionId,
-            endedBy: userId,
-            timestamp: new Date().toISOString()
-          });
-          notifiedSockets.add(participantSocketId);
+        const sid = onlineUsers.get(pid);
+        const payload = { sessionId };
+        if (sid && !notified.has(sid)) {
+          io.to(sid).emit('getstream_call_ended', payload);
+          notified.add(sid);
         }
-        
-        // Only send to room if no direct socket connection was found
-        if (!participantSocketId) {
-          io.to(pid).emit('video_call_ended', {
-            sessionId,
-            endedBy: userId,
-            timestamp: new Date().toISOString()
-          });
-        }
+        if (!sid) io.to(pid).emit('getstream_call_ended', payload);
       });
 
-      // Clear notifications for this session
+      // Best-effort: clear notifications for this session
       try {
         const Notification = require('./models/Notification');
         Notification.deleteMany({
-          type: 'video_call_invitation',
-          relatedId: sessionId
+          type: 'getstream_video_call_invitation',
+          'data.sessionId': sessionId
         }).catch(() => {});
-      } catch (e) {
-        console.warn('⚠️ Failed to clear notifications on peer-call-ended:', e?.message || e);
-      }
-    } else {
-      // Fallback: Broadcast termination to all connected clients for this user
-      socket.broadcast.emit('peer_call_terminated', {
-        terminatedBy: userId,
-        timestamp: new Date().toISOString()
-      });
+      } catch {}
+    } catch (e) {
+      console.warn('getstream-video-call-end handler error:', e?.message || e);
     }
   });
 
+  // Removed PeerJS 'peer-call-ended' handler
 
-  socket.on('decline-video-call', (data) => {
-    io.to(data.callerId).emit('video-call-declined', {
-      callerId: data.callerId,
-      recipientId: data.recipientId,
-      sessionId: data.sessionId
-    });
+
+  // ===== GetStream decline/cancel =====
+  socket.on('getstream-video-call-reject', (data) => {
+    try {
+      const { sessionId, callerId, recipientId } = data || {};
+      if (!sessionId || !callerId || !recipientId) return;
+      const sid = onlineUsers.get(callerId.toString());
+      const payload = { sessionId, recipientId };
+      if (sid) io.to(sid).emit('getstream_call_rejected', payload);
+      io.to(callerId.toString()).emit('getstream_call_rejected', payload);
+    } catch {}
+  });
+  socket.on('getstream-video-call-cancel', (data) => {
+    try {
+      const { sessionId, recipientId } = data || {};
+      if (!sessionId || !recipientId) return;
+      const sid = onlineUsers.get(recipientId.toString());
+      const payload = { sessionId };
+      if (sid) io.to(sid).emit('getstream_call_cancelled', payload);
+      io.to(recipientId.toString()).emit('getstream_call_cancelled', payload);
+    } catch {}
   });
 
 
@@ -815,259 +354,252 @@ io.on('connection', (socket) => {
       io.emit('getOnlineUsers', Array.from(onlineUsers.keys()));
     }
   });
-});
 
-// WebRTC namespace connection (for video call functionality)
-webrtcNamespace.on('connection', (socket) => {
-
-  socket.on('join', async (userId) => {
-    // Use authenticated user ID for security
-    const authenticatedUserId = socket.userId;
-    socket.join(authenticatedUserId);
-    webrtcUsers.set(authenticatedUserId, socket.id);
-    
-    // IMMEDIATE: Update user's online status in database with priority
-    try {
-      await User.findByIdAndUpdate(authenticatedUserId, { 
-        lastSeen: new Date(),
-        isOnline: true 
-      });
-      console.log('✅ WebRTC Database updated: User', authenticatedUserId, 'marked as online');
-    } catch (error) {
-      console.error('❌ Error updating WebRTC user online status:', error);
-    }
-    
-    console.log('📹 WebRTC user joined:', authenticatedUserId, 'Socket:', socket.id);
-    console.log('📹 WebRTC users count:', webrtcUsers.size);
-    
-    // Notify all connected sockets (including self) that this user is online for video calls
-    io.emit('user-webrtc-ready', { userId: authenticatedUserId, timestamp: new Date().toISOString() });
-    webrtcNamespace.emit('user-webrtc-ready', { userId: authenticatedUserId, timestamp: new Date().toISOString() });
-    // Also emit directly to all sockets in /webrtc namespace
-    Object.values(webrtcUsers).forEach((socketId) => {
-      try {
-        webrtcNamespace.to(socketId).emit('user-webrtc-ready', { userId: authenticatedUserId, timestamp: new Date().toISOString() });
-      } catch (e) { console.error('Failed to emit user-webrtc-ready to', socketId, e); }
+  // ===== GETSTREAM PROFESSIONAL SESSION SOCKET HANDLERS =====
+  
+  // Modern session-based handlers (fresh approach)
+  
+  // Handle GetStream professional session join
+  socket.on('getstream-session-join', async (data) => {
+    const { sessionId, participantId, participantName, hostId, joinTimestamp, sessionType } = data;
+    console.log('🎬 GetStream professional session join:', { 
+      sessionId, participantId, participantName, hostId, sessionType 
     });
+
+    // Notify host that participant joined the session
+    const hostSocketId = onlineUsers.get(hostId?.toString());
+    if (hostSocketId) {
+      io.to(hostSocketId).emit('getstream_session_participant_joined', {
+        sessionId,
+        participantId,
+        participantName,
+        joinTimestamp,
+        sessionType,
+        message: `${participantName} joined the professional session`
+      });
+      console.log(`✨ Session join notification sent to host: ${hostId}`);
+    }
+
+    // Also send to host's room as backup
+    io.to(hostId?.toString()).emit('getstream_session_participant_joined', {
+      sessionId,
+      participantId,
+      participantName,
+      joinTimestamp,
+      sessionType
+    });
+
+    // Clear session invitation notifications
+    try {
+      const Notification = require('./models/Notification');
+      await Notification.deleteMany({
+        type: 'getstream_video_session_invitation',
+        'data.sessionId': sessionId
+      });
+      console.log('✅ GetStream session notifications cleared for session:', sessionId);
+    } catch (error) {
+      console.error('❌ Error clearing GetStream session notifications:', error);
+    }
   });
 
-  // Handle video call invitation emitted from the /webrtc namespace
-  socket.on('send-video-call-invitation', async (data) => {
-    // DEBUG: Print webrtcUsers map at the moment of call invitation
-    try {
-      console.log('🟦 [DEBUG] webrtcUsers at call invitation:', Array.from(webrtcUsers.entries()));
-    } catch (e) { console.error('🟥 [DEBUG] webrtcUsers print error:', e); }
+  // Legacy GetStream handlers (for backward compatibility)
+  
+  // Handle GetStream video call invitation
+  socket.on('getstream-video-call-invitation', async (data) => {
+    const { recipientId, sessionId, callerId, callerName, callId } = data;
+    console.log('📞 GetStream video call invitation:', { recipientId, sessionId, callerId, callerName, callId });
 
-    const recipientId = data.recipientId.toString();
-    const callerId = data.callerId.toString();
-    let videoCallRecord = null;
-    let remainingTime = 300; // Default 5 minutes
-    
-    // Join the session room for coordinated communication
-    if (data.sessionId) {
-      socket.join(data.sessionId);
+    // Send to recipient's socket directly
+    const recipientSocketId = onlineUsers.get(recipientId?.toString());
+    if (recipientSocketId) {
+      io.to(recipientSocketId).emit('getstream_video_call_invitation', {
+        callerId,
+        callerName,
+        sessionId,
+        callId,
+        timestamp: new Date().toISOString()
+      });
+      console.log('✅ GetStream invitation sent to recipient socket:', recipientSocketId);
     }
 
+    // Also send to recipient's room as backup
+    io.to(recipientId?.toString()).emit('getstream_video_call_invitation', {
+      callerId,
+      callerName,
+      sessionId,
+      callId,
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ GetStream invitation sent to recipient room:', recipientId);
+  });
+
+  // Handle GetStream video call acceptance
+  socket.on('getstream-video-call-accept', async (data) => {
+    const { sessionId, callerId, recipientId, callId } = data;
+    console.log('✅ GetStream video call accepted:', { sessionId, callerId, recipientId, callId });
+
+    // Notify caller that call was accepted
+    const callerSocketId = onlineUsers.get(callerId?.toString());
+    if (callerSocketId) {
+      io.to(callerSocketId).emit('getstream_call_accepted', {
+        sessionId,
+        recipientId,
+        callId,
+        timestamp: new Date().toISOString()
+      });
+      console.log('✅ GetStream acceptance sent to caller socket:', callerSocketId);
+    }
+
+    // Also send to caller's room as backup
+    io.to(callerId?.toString()).emit('getstream_call_accepted', {
+      sessionId,
+      recipientId,
+      callId,
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ GetStream acceptance sent to caller room:', callerId);
+  });
+
+  // Handle GetStream video call rejection
+  socket.on('getstream-video-call-reject', async (data) => {
+    const { sessionId, callerId, recipientId, reason } = data;
+    console.log('❌ GetStream video call rejected:', { sessionId, callerId, recipientId, reason });
+
+    // Notify caller that call was rejected
+    const callerSocketId = onlineUsers.get(callerId?.toString());
+    if (callerSocketId) {
+      io.to(callerSocketId).emit('getstream_call_rejected', {
+        sessionId,
+        recipientId,
+        reason: reason || 'declined',
+        timestamp: new Date().toISOString()
+      });
+      console.log('✅ GetStream rejection sent to caller socket:', callerSocketId);
+    }
+
+    // Also send to caller's room as backup
+    io.to(callerId?.toString()).emit('getstream_call_rejected', {
+      sessionId,
+      recipientId,
+      reason: reason || 'declined',
+      timestamp: new Date().toISOString()
+    });
+    console.log('✅ GetStream rejection sent to caller room:', callerId);
+
+    // Clear notifications
     try {
-      // Validate 5-minute video call limit
-      videoCallRecord = await VideoCallTime.getOrCreatePairRecord(callerId, recipientId);
-      if (!videoCallRecord.canMakeVideoCall()) {
-        const rejectionMessage = {
-          type: 'video_call_rejected',
-          reason: 'time_limit_exceeded',
-          message: 'Video call time limit (5 minutes) exceeded for this match. No more video calls allowed.',
-          remainingTime: 0,
-          limitExceeded: true,
-          sessionId: data.sessionId
-        };
-        socket.emit('video_call_rejected', rejectionMessage);
-        return;
-      }
-      remainingTime = videoCallRecord.getRemainingTime();
+      const Notification = require('./models/Notification');
+      await Notification.deleteMany({
+        type: 'getstream_video_call_invitation',
+        'data.sessionId': sessionId
+      });
+      console.log('✅ GetStream notifications cleared for session:', sessionId);
     } catch (error) {
-      // Continue with call invitation even if time check fails (fallback)
+      console.error('❌ Error clearing GetStream notifications:', error);
     }
+  });
 
-    // Create standardized video call message
-    const videoCallMessage = {
-      senderId: callerId,
-      recipientId: recipientId,
-      message: `${data.callerName} is inviting you to a video call`,
-      messageType: 'video_call_invitation',
-      videoCallData: {
-        callerId: callerId,
-        callerName: data.callerName,
-        sessionId: data.sessionId,
-        timestamp: data.timestamp,
-        status: 'pending',
-        remainingTime: remainingTime
-      },
-      createdAt: new Date().toISOString()
+  // Handle GetStream video call end
+  socket.on('getstream-video-call-end', async (data) => {
+    const { sessionId, callerId, recipientId, duration } = data;
+    console.log('📴 GetStream video call ended:', { sessionId, callerId, recipientId, duration });
+
+    // Notify both participants that call ended
+    const callerSocketId = onlineUsers.get(callerId?.toString());
+    const recipientSocketId = onlineUsers.get(recipientId?.toString());
+
+    const endPayload = {
+      sessionId,
+      callerId,
+      recipientId,
+      duration,
+      timestamp: new Date().toISOString()
     };
 
-    // Deliver via main namespace to ensure app-level listeners receive it
-    const recipientSocketId = onlineUsers.get(recipientId);
-    let notificationSent = false;
-
+    // Send to both participants via direct socket
+    if (callerSocketId) {
+      io.to(callerSocketId).emit('getstream_call_ended', endPayload);
+    }
     if (recipientSocketId) {
+      io.to(recipientSocketId).emit('getstream_call_ended', endPayload);
+    }
+
+    // Send to both participants via room as backup
+    io.to(callerId?.toString()).emit('getstream_call_ended', endPayload);
+    io.to(recipientId?.toString()).emit('getstream_call_ended', endPayload);
+
+    console.log('✅ GetStream call end notifications sent to both participants');
+
+    // Track call duration if provided
+    if (duration && callerId && recipientId) {
       try {
-        io.to(recipientSocketId).emit('video_call_invitation', videoCallMessage);
-        // Also emit for activity feed
-        io.to(recipientSocketId).emit('send-video-call-invitation', {
-          callerId: callerId,
-          callerName: data.callerName,
-          callerUsername: data.callerUsername,
-          recipientId: recipientId,
-          sessionId: data.sessionId,
-          timestamp: data.timestamp
-        });
-        notificationSent = true;
+        const VideoCallTime = require('./models/VideoCallTime');
+        await VideoCallTime.findOneAndUpdate(
+          { callerId, recipientId },
+          { 
+            $inc: { totalTimeSpent: duration },
+            lastCallDate: new Date()
+          },
+          { upsert: true }
+        );
+        console.log('✅ GetStream call duration tracked:', { callerId, recipientId, duration });
       } catch (error) {
-        // Silent error handling
+        console.error('❌ Error tracking GetStream call duration:', error);
       }
     }
 
-    // Also send to recipient's room as backup (main namespace)
+    // Clear notifications
     try {
-      io.to(recipientId).emit('video_call_invitation', videoCallMessage);
-      // Also emit for activity feed
-      io.to(recipientId).emit('send-video-call-invitation', {
-        callerId: callerId,
-        callerName: data.callerName,
-        callerUsername: data.callerUsername,
-        recipientId: recipientId,
-        sessionId: data.sessionId,
-        timestamp: data.timestamp
+      const Notification = require('./models/Notification');
+      await Notification.deleteMany({
+        type: 'getstream_video_call_invitation',
+        'data.sessionId': sessionId
       });
-      notificationSent = true;
+      console.log('✅ GetStream notifications cleared for session:', sessionId);
     } catch (error) {
-      // Silent error handling
+      console.error('❌ Error clearing GetStream notifications:', error);
     }
-
-    // LAYER 3: Broadcast fallback with client-side filtering
-    try {
-      io.emit('video_call_invitation_broadcast', {
-        // Top-level fields for easier client handling
-        callerId: callerId,
-        callerName: data.callerName,
-        callerUsername: data.callerUsername,
-        recipientId: recipientId,
-        sessionId: data.sessionId,
-        timestamp: data.timestamp,
-        // Original structured message for richer clients
-        ...videoCallMessage,
-        targetUserId: recipientId
-      });
-    } catch (error) {
-      // Silent error handling
-    }
-
-    // Send result back to caller (webrtc namespace)
-    socket.emit('video-call-invitation-result', {
-      success: notificationSent,
-      recipientOnline: !!recipientSocketId
-    });
   });
 
-  // WebRTC Signaling Handlers
-  socket.on('video-call-offer', (data) => {
-    
-    // Check if recipient is online in WebRTC namespace
-    const recipientSocketId = webrtcUsers.get(data.recipientId);
+  // Handle GetStream video call cancellation
+  socket.on('getstream-video-call-cancel', async (data) => {
+    const { sessionId, callerId, recipientId } = data;
+    console.log('🚫 GetStream video call cancelled:', { sessionId, callerId, recipientId });
+
+    // Notify recipient that call was cancelled
+    const recipientSocketId = onlineUsers.get(recipientId?.toString());
     if (recipientSocketId) {
-      socket.to(data.recipientId).emit('video-call-offer', {
-        offer: data.offer,
-        callerId: socket.userId, // Use authenticated caller ID
-        callerName: data.callerName,
-        callerAvatar: data.callerAvatar
+      io.to(recipientSocketId).emit('getstream_call_cancelled', {
+        sessionId,
+        callerId,
+        timestamp: new Date().toISOString()
       });
-    } else {
-      socket.emit('video-call-failed', { message: 'Recipient is not online' });
+      console.log('✅ GetStream cancellation sent to recipient socket:', recipientSocketId);
     }
-  });
 
-  socket.on('video-call-answer', (data) => {
-    socket.to(data.callerId).emit('video-call-answer', {
-      answer: data.answer,
-      recipientId: data.recipientId
+    // Also send to recipient's room as backup
+    io.to(recipientId?.toString()).emit('getstream_call_cancelled', {
+      sessionId,
+      callerId,
+      timestamp: new Date().toISOString()
     });
-  });
+    console.log('✅ GetStream cancellation sent to recipient room:', recipientId);
 
-  socket.on('ice-candidate', (data) => {
-    socket.to(data.recipientId).emit('ice-candidate', {
-      candidate: data.candidate,
-      senderId: data.senderId
-    });
-  });
-
-  socket.on('video-call-reject', (data) => {
-    socket.to(data.callerId).emit('video-call-rejected', {
-      recipientId: data.recipientId
-    });
-  });
-
-  socket.on('video-call-end', async (data) => {
-    
+    // Clear notifications
     try {
-      // Track video call time if duration is provided
-      if (data.duration && data.userId && data.recipientId) {
-        const videoCallRecord = await VideoCallTime.getOrCreatePairRecord(data.userId, data.recipientId);
-        const session = videoCallRecord.addCallTime(data.duration, 'video');
-        await videoCallRecord.save();
-        
-        // Video call time tracked successfully
-        
-        // Notify recipient about remaining time
-        socket.to(data.recipientId).emit('video-call-ended', {
-          userId: data.userId,
-          duration: data.duration,
-          totalTimeSpent: videoCallRecord.totalTimeSpent,
-          remainingTime: videoCallRecord.getRemainingTime(),
-          limitExceeded: videoCallRecord.limitExceeded
-        });
-        
-        return;
-      }
+      const Notification = require('./models/Notification');
+      await Notification.deleteMany({
+        type: 'getstream_video_call_invitation',
+        'data.sessionId': sessionId
+      });
+      console.log('✅ GetStream notifications cleared for session:', sessionId);
     } catch (error) {
-      // Silent error handling for performance
-    }
-    
-    // Fallback - notify recipient without time tracking
-    socket.to(data.recipientId).emit('video-call-ended', {
-      userId: data.userId
-    });
-  });
-
-  socket.on('video-call-cancel', (data) => {
-    socket.to(data.recipientId).emit('video-call-cancelled', {
-      callerId: data.callerId
-    });
-  });
-
-
-
-
-
-
-  socket.on('disconnect', async () => {
-    let userIdToUpdate;
-    for (let [userId, socketId] of webrtcUsers.entries()) {
-      if (socketId === socket.id) {
-        userIdToUpdate = userId;
-        webrtcUsers.delete(userId);
-        break;
-      }
-    }
-
-    if (userIdToUpdate) {
-      try {
-        await User.findByIdAndUpdate(userIdToUpdate, { lastSeen: new Date() });
-      } catch (error) {
-        // Silent error handling
-      }
+      console.error('❌ Error clearing GetStream notifications:', error);
     }
   });
+
 });
+// Removed legacy WebRTC namespace connection block (PeerJS/Daily)
 
 app.get('/', (req, res) => {
   res.send('API is running...');
@@ -1092,7 +624,7 @@ app.use('/api/wali', waliRoutes);
 app.use('/api/feed', feedRoutes);
 app.use('/api/monthly-usage', monthlyUsageRoutes);
 app.use('/api/dashboard', dashboardRoutes);
-app.use('/api/peerjs-video-call', peerjsRoutes);
+app.use('/api/getstream-video-call', getstreamVideoCallRoutes);
 app.use('/api/video-recording', videoRecordingRoutes);
 app.use('/api/video-call-time', videoCallTimeRoutes);
 
@@ -1158,7 +690,7 @@ app.get('/api/users/online', async (req, res) => {
 app.get('/api/debug/online-users', async (req, res) => {
   console.log('🔍 DEBUG ENDPOINT CALLED - Current state:');
   console.log('📊 Online users map:', Array.from(onlineUsers.entries()));
-  console.log('📹 WebRTC users map:', Array.from(webrtcUsers.entries()));
+  // WebRTC users removed
   
   // Get recently active users from database
   let recentlyActiveUsers = [];
@@ -1175,18 +707,14 @@ app.get('/api/debug/online-users', async (req, res) => {
   
   // Get all socket rooms
   const mainRooms = Array.from(io.sockets.adapter.rooms.keys()).filter(room => !room.startsWith('notifications_'));
-  const webrtcRooms = webrtcNamespace ? Array.from(webrtcNamespace.adapter.rooms.keys()) : [];
   
   console.log('🏠 Main namespace rooms:', mainRooms);
-  console.log('📹 WebRTC namespace rooms:', webrtcRooms);
+  // WebRTC namespace removed
   
   res.json({
     onlineUsers: Array.from(onlineUsers.keys()),
     onlineUsersCount: onlineUsers.size,
     onlineUsersMap: Object.fromEntries(onlineUsers),
-    webrtcUsers: Array.from(webrtcUsers.keys()),
-    webrtcUsersCount: webrtcUsers.size,
-    webrtcUsersMap: Object.fromEntries(webrtcUsers),
     recentlyActiveUsers: recentlyActiveUsers.map(u => ({
       id: u._id,
       name: `${u.fname} ${u.lname}`,
@@ -1195,7 +723,6 @@ app.get('/api/debug/online-users', async (req, res) => {
       isOnline: u.isOnline
     })),
     mainRooms,
-    webrtcRooms,
     timestamp: new Date().toISOString()
   });
 });

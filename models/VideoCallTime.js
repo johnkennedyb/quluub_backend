@@ -43,7 +43,7 @@ const videoCallTimeSchema = new mongoose.Schema({
     },
     callType: {
       type: String,
-      enum: ['video', 'audio'],
+      enum: ['video', 'audio', 'getstream', 'peerjs', 'livekit'],
       default: 'video'
     }
   }],

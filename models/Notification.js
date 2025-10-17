@@ -8,7 +8,7 @@ const notificationSchema = new mongoose.Schema({
   },
   type: {
     type: String,
-    enum: ['message', 'match', 'like', 'video_call', 'video_call_invitation', 'admin_announcement', 'system_alert'],
+    enum: ['message', 'match', 'like', 'video_call', 'video_call_invitation', 'getstream_video_call_invitation', 'admin_announcement', 'system_alert'],
     required: true
   },
   message: {
@@ -28,6 +28,10 @@ const notificationSchema = new mongoose.Schema({
     callerName: { type: String },
     recipientId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     recipientName: { type: String },
+    sessionId: { type: String },
+    callId: { type: String },
+    timestamp: { type: String },
+    remainingTime: { type: Number },
     // Add any other relevant data for different notification types
     matchId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     messageId: { type: mongoose.Schema.Types.ObjectId, ref: 'Chat' }

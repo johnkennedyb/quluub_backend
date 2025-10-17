@@ -7,6 +7,7 @@ const User = require('../models/User');
 const ffmpeg = require('fluent-ffmpeg');
 const ffmpegPath = require('@ffmpeg-installer/ffmpeg').path;
 const crypto = require('crypto');
+const cloudinary = require('cloudinary').v2;
 
 ffmpeg.setFfmpegPath(ffmpegPath);
 
@@ -23,7 +24,9 @@ const storage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     const timestamp = Date.now();
-    const filename = `video-call-${timestamp}.webm`;
+    // Choose extension based on mimetype (supports webm and mp4)
+    const ext = file.mimetype === 'video/mp4' ? '.mp4' : '.webm';
+    const filename = `video-call-${timestamp}${ext}`;
     cb(null, filename);
   }
 });
@@ -34,10 +37,11 @@ const upload = multer({
     fileSize: 100 * 1024 * 1024, // 100MB limit
   },
   fileFilter: (req, file, cb) => {
-    if (file.mimetype === 'video/webm') {
+    const allowed = ['video/webm', 'video/mp4'];
+    if (allowed.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error('Only .webm video files are allowed'), false);
+      cb(new Error('Only .webm or .mp4 video files are allowed'), false);
     }
   }
 });
@@ -66,6 +70,27 @@ const convertToMp4 = (inputPath) => {
       reject(err);
       return;
     }
+
+    let totalDurationSec = 0;
+    // Try to fetch duration for better progress reporting
+    try {
+      ffmpeg.ffprobe(inputPath, (err, metadata) => {
+        if (!err) {
+          totalDurationSec = Number(metadata?.format?.duration || 0) || 0;
+        }
+      });
+    } catch {}
+
+    const parseTimemark = (tm) => {
+      if (!tm || typeof tm !== 'string') return 0;
+      const parts = tm.split(':'); // HH:MM:SS.xx
+      if (parts.length < 3) return 0;
+      const h = parseFloat(parts[0]) || 0;
+      const m = parseFloat(parts[1]) || 0;
+      const s = parseFloat(parts[2]) || 0;
+      return h * 3600 + m * 60 + s;
+    };
+
     ffmpeg(inputPath)
       .toFormat('mp4')
       .videoCodec('libx264')
@@ -89,7 +114,18 @@ const convertToMp4 = (inputPath) => {
         console.log('🔄 FFmpeg command:', commandLine);
       })
       .on('progress', (progress) => {
-        console.log(`📹 Conversion progress: ${progress.percent}%`);
+        let pct = typeof progress.percent === 'number' ? progress.percent : undefined;
+        if (typeof pct !== 'number' && progress.timemark && totalDurationSec > 0) {
+          const currentSec = parseTimemark(progress.timemark);
+          if (currentSec > 0 && totalDurationSec > 0) {
+            pct = (currentSec / totalDurationSec) * 100;
+          }
+        }
+        if (typeof pct === 'number' && isFinite(pct)) {
+          console.log(`📹 Conversion progress: ${pct.toFixed(1)}%`);
+        } else {
+          console.log(`📹 Conversion progress: ${progress.timemark || '...'}`);
+        }
       })
       .on('end', () => {
         console.log('✅ Video conversion finished.');
@@ -116,7 +152,14 @@ const uploadVideoRecording = async (req, res) => {
       return res.status(400).json({ success: false, message: 'No video file uploaded' });
     }
 
-    webmPath = req.file.path;
+    // Determine input file path and type
+    const inputPath = req.file.path;
+    const inputExt = path.extname(inputPath).toLowerCase();
+    const publicIdBase = path.basename(inputPath, inputExt);
+    if (inputExt === '.webm') {
+      webmPath = inputPath;
+    }
+
     const { callerId, recipientId } = req.body;
     
     if (!callerId || !recipientId) {
@@ -158,64 +201,108 @@ const uploadVideoRecording = async (req, res) => {
     if (!waliEmail) {
       console.log('⚠️ No Wali email found for female user, skipping notification.');
       console.log('⚠️ Female user waliDetails:', femaleUser.waliDetails);
-
-      // Try to convert to MP4 for better compatibility (esp. iOS Safari)
-      let preferredFilename = path.basename(webmPath);
+      // Convert to MP4 only if input is webm, otherwise pass-through mp4
       try {
-        const mp4Out = await convertToMp4(webmPath);
-        mp4Path = mp4Out;
-        preferredFilename = path.basename(mp4Path);
-        console.log('✅ MP4 conversion succeeded (no wali flow):', preferredFilename);
+        const mp4PathConverted = inputExt === '.mp4' ? inputPath : await convertToMp4(inputPath);
+        mp4Path = mp4PathConverted; // track for cleanup
+
+        const downloadToken = crypto.randomBytes(32).toString('hex');
+        const backendUrl = process.env.BACKEND_PUBLIC_URL || 'https://quluub-backend-1.onrender.com';
+        const frontendUrl = process.env.FRONTEND_PUBLIC_URL || process.env.FRONTEND_URL || 'https://match.quluub.com';
+        const mp4Filename = `${publicIdBase}.mp4`;
+        const watchLink = `${frontendUrl}/video-viewer/${mp4Filename}?token=${downloadToken}`;
+        const downloadLink = `${backendUrl}/api/video-recording/download/${mp4Filename}?token=${downloadToken}`;
+
+        const hasCloud = !!(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET);
+        if (!hasCloud) {
+          console.error('❌ Cloudinary env not set - Cloud-only storage required');
+          return res.status(500).json({ success: false, message: 'Cloudinary configuration missing' });
+        }
+
+        cloudinary.config({
+          cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+          api_key: process.env.CLOUDINARY_API_KEY,
+          api_secret: process.env.CLOUDINARY_API_SECRET,
+        });
+
+        const cloudFolder = process.env.CLOUDINARY_FOLDER || 'quluub/recordings';
+        const uploadRes = await cloudinary.uploader.upload(mp4PathConverted, {
+          resource_type: 'video',
+          folder: cloudFolder,
+          public_id: publicIdBase,
+          overwrite: true,
+        });
+        console.log('✅ Uploaded recording to Cloudinary (no-wali branch):', {
+          publicId: `${cloudFolder}/${publicIdBase}`,
+          secureUrl: uploadRes?.secure_url || null
+        });
+
+        return res.json({
+          success: true,
+          message: 'Recording uploaded to Cloudinary',
+          waliNotified: false,
+          waliEmail: null,
+          watchLink,
+          downloadLink,
+          filename: mp4Filename,
+          cloudinaryUrl: uploadRes?.secure_url || null,
+          cloudinaryPublicId: `${cloudFolder}/${publicIdBase}`
+        });
       } catch (e) {
-        console.warn('⚠️ MP4 conversion failed (no wali flow), using WEBM:', e?.message || e);
+        console.error('❌ Cloudinary upload failed:', e);
+        return res.status(500).json({ success: false, message: 'Upload to Cloudinary failed', error: e?.message || String(e) });
       }
-
-      const downloadToken = crypto.randomBytes(32).toString('hex');
-      const backendUrl = process.env.BACKEND_PUBLIC_URL || 'https://quluub-backend-1.onrender.com';
-      const frontendUrl = process.env.FRONTEND_PUBLIC_URL || process.env.FRONTEND_URL || 'https://match.quluub.com';
-      const watchLink = `${frontendUrl}/video-viewer/${preferredFilename}?token=${downloadToken}`;
-      const downloadLink = `${backendUrl}/api/video-recording/download/${preferredFilename}?token=${downloadToken}`;
-
-      return res.json({ 
-        success: true, 
-        message: 'Recording saved (no Wali notification required)',
-        waliNotified: false,
-        waliEmail: null,
-        watchLink,
-        downloadLink,
-        filename: preferredFilename
-      });
     }
 
-    // Check if WebM file has content before processing
-    const webmStats = await fs.stat(webmPath);
-    if (webmStats.size === 0) {
-      console.error('❌ WebM file is empty, cannot process');
+    // Check if input file has content before processing
+    const inputStats = await fs.stat(inputPath);
+    if (inputStats.size === 0) {
+      console.error('❌ Uploaded video file is empty, cannot process');
       return res.status(400).json({ 
         success: false, 
         message: 'Video file is empty or corrupted' 
       });
     }
     
-    console.log(`📹 Processing WebM file (${webmStats.size} bytes)`);
+    console.log(`📹 Processing input file (${inputStats.size} bytes) [ext=${inputExt}]`);
     
-    // Prefer MP4 for compatibility. Attempt conversion with graceful fallback to WEBM
+    // Convert to MP4 if needed, otherwise pass-through MP4
+    const mp4PathConverted = inputExt === '.mp4' ? inputPath : await convertToMp4(inputPath);
+    mp4Path = mp4PathConverted; // track mp4 for cleanup
+    const hasCloud = !!(process.env.CLOUDINARY_CLOUD_NAME && process.env.CLOUDINARY_API_KEY && process.env.CLOUDINARY_API_SECRET);
+    if (!hasCloud) {
+      console.error('❌ Cloudinary env not set - Cloud-only storage required');
+      return res.status(500).json({ success: false, message: 'Cloudinary configuration missing' });
+    }
+    const cloudFolder = process.env.CLOUDINARY_FOLDER || 'quluub/recordings';
+    let uploadRes = null;
     try {
-      const mp4Out = await convertToMp4(webmPath);
-      mp4Path = mp4Out;
-      console.log('✅ MP4 conversion finished, using MP4 for links:', mp4Path);
-    } catch (convErr) {
-      console.warn('⚠️ MP4 conversion failed, falling back to WEBM:', convErr?.message || convErr);
-      mp4Path = webmPath;
+      cloudinary.config({
+        cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+        api_key: process.env.CLOUDINARY_API_KEY,
+        api_secret: process.env.CLOUDINARY_API_SECRET,
+      });
+      uploadRes = await cloudinary.uploader.upload(mp4PathConverted, {
+        resource_type: 'video',
+        folder: cloudFolder,
+        public_id: publicIdBase,
+        overwrite: true,
+      });
+      console.log('✅ Uploaded recording to Cloudinary:', {
+        publicId: `${cloudFolder}/${publicIdBase}`,
+        secureUrl: uploadRes?.secure_url || null
+      });
+    } catch (e) {
+      console.error('❌ Cloudinary upload failed:', e?.message || e);
+      return res.status(500).json({ success: false, message: 'Upload to Cloudinary failed', error: e?.message || String(e) });
     }
 
-    // Generate secure links
-    const videoFilename = path.basename(mp4Path);
     const downloadToken = crypto.randomBytes(32).toString('hex');
     const backendUrl = process.env.BACKEND_PUBLIC_URL || 'https://quluub-backend-1.onrender.com';
     const frontendUrl = process.env.FRONTEND_PUBLIC_URL || process.env.FRONTEND_URL || 'https://match.quluub.com';
-    const watchLink = `${frontendUrl}/video-viewer/${videoFilename}?token=${downloadToken}`;
-    const downloadLink = `${backendUrl}/api/video-recording/download/${videoFilename}?token=${downloadToken}`;
+    const mp4Filename = `${publicIdBase}.mp4`;
+    const watchLink = `${frontendUrl}/video-viewer/${mp4Filename}?token=${downloadToken}`;
+    const downloadLink = `${backendUrl}/api/video-recording/download/${mp4Filename}?token=${downloadToken}`;
 
     // Use the updated email header and footer components
     const createEmailHeader = require('../utils/emailTemplates/components/emailHeader');
@@ -285,7 +372,7 @@ const uploadVideoRecording = async (req, res) => {
                     <div style="text-align: center; margin: 8px 0;">
                       <a href="${downloadLink}" 
                          style="display: inline-block; padding: 10px 18px; background-color: #28a745; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 12px;">
-                        📥 Fallback: Download Video
+                        📥 Fallback: Download Video (MP4)
                       </a>
                     </div>
                     <p style="margin: 15px 0 0 0; color: #856404; font-size: 12px; text-align: center;">
@@ -341,7 +428,9 @@ const uploadVideoRecording = async (req, res) => {
         waliEmail: waliEmail,
         watchLink,
         downloadLink,
-        filename: videoFilename
+        filename: mp4Filename,
+        cloudinaryUrl: uploadRes?.secure_url || null,
+        cloudinaryPublicId: uploadRes ? `${cloudFolder}/${publicIdBase}` : null
       });
     }
     
@@ -354,7 +443,9 @@ const uploadVideoRecording = async (req, res) => {
       waliEmail: waliEmail,
       watchLink,
       downloadLink,
-      filename: videoFilename
+      filename: mp4Filename,
+      cloudinaryUrl: uploadRes?.secure_url || null,
+      cloudinaryPublicId: uploadRes ? `${cloudFolder}/${publicIdBase}` : null
     });
 
   } catch (error) {
@@ -365,17 +456,30 @@ const uploadVideoRecording = async (req, res) => {
       error: error.message
     });
   } finally {
-    // Cleanup: delete the temporary .webm and .mp4 files
+    // Cleanup: delete temporary local files (Cloudinary-only storage)
     try {
-      // Keep the WebM file for serving via download link - no cleanup needed
-      console.log('📁 Keeping WebM file for download access:', webmPath);
+      if (mp4Path) {
+        await fs.unlink(mp4Path).catch(() => {});
+        console.log('🧹 Deleted local MP4:', mp4Path);
+      }
     } catch (cleanupError) {
-      console.error('Error during cleanup:', cleanupError);
+      console.warn('⚠️ MP4 cleanup error:', cleanupError?.message || cleanupError);
+    }
+    try {
+      if (webmPath) {
+        const fsNode = require('fs');
+        if (fsNode.existsSync(webmPath)) {
+          await fs.unlink(webmPath).catch(() => {});
+          console.log('🧹 Deleted local WEBM:', webmPath);
+        }
+      }
+    } catch (cleanupError) {
+      console.warn('⚠️ WEBM cleanup error:', cleanupError?.message || cleanupError);
     }
   }
 };
 
-// Download video recording with secure token
+// Download video recording with secure token (Cloudinary-only)
 const downloadVideoRecording = async (req, res) => {
   try {
     const { filename } = req.params;
@@ -386,50 +490,30 @@ const downloadVideoRecording = async (req, res) => {
       return res.status(400).json({ error: 'Invalid filename' });
     }
 
-    // For now, allow access without token validation (can be enhanced later)
-    // In production, you might want to validate the token against a database
-    let filePath = path.join(__dirname, '../uploads/video-recordings', filename);
-    const fsNode = require('fs');
-    const reqExt = path.extname(filename).toLowerCase();
-
-    // If MP4 requested but missing, convert from WEBM on-demand
-    if (!fsNode.existsSync(filePath) && reqExt === '.mp4') {
-      const webmCandidate = filePath.replace(/\.mp4$/i, '.webm');
-      if (fsNode.existsSync(webmCandidate)) {
-        try {
-          filePath = await convertToMp4(webmCandidate);
-        } catch (e) {
-          console.warn('⚠️ On-demand conversion failed (download):', e?.message || e);
-        }
-      }
+    const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+    if (!cloudName) {
+      return res.status(500).json({ error: 'Cloud storage not configured' });
     }
-
-    // Check if file exists
+    const folder = process.env.CLOUDINARY_FOLDER || 'quluub/recordings';
+    const base = path.basename(filename, path.extname(filename));
+    const publicId = `${folder}/${base}`;
     try {
-      await fs.access(filePath);
-    } catch (error) {
-      return res.status(404).json({ error: 'Video recording not found' });
+      cloudinary.config({
+        cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+        api_key: process.env.CLOUDINARY_API_KEY,
+        api_secret: process.env.CLOUDINARY_API_SECRET,
+      });
+      await cloudinary.api.resource(publicId, { resource_type: 'video' });
+    } catch (e) {
+      const msg = (e && (e.http_code === 404 || e?.error?.message?.includes('not found'))) ? 'Recording not found' : 'Cloudinary check failed';
+      const code = msg === 'Recording not found' ? 404 : 502;
+      console.warn(`⚠️ ${msg} for download`, { publicId, err: e?.message || String(e) });
+      return res.status(code).json({ error: msg });
     }
-
-    // Get file stats
-    const stats = await fs.stat(filePath);
-    
-    // Determine content type based on file extension
-    const ext = path.extname(filePath).toLowerCase();
-    const contentType = ext === '.webm' ? 'video/webm' : 'video/mp4';
-    
-    // Set appropriate headers
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Content-Length', stats.size);
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.setHeader('Cache-Control', 'no-cache');
-    
-    // Stream the file
-    const fileStream = fsNode.createReadStream(filePath);
-    fileStream.pipe(res);
-    
-    console.log(` Video recording downloaded: ${filename}`);
-    
+    const cloudUrl = `https://res.cloudinary.com/${cloudName}/video/upload/${publicId}.mp4`;
+    res.setHeader('Cache-Control', 'private, max-age=604800');
+    res.setHeader('x-cloudinary-public-id', publicId);
+    return res.redirect(cloudUrl);
   } catch (error) {
     console.error('Error downloading video recording:', error);
     res.status(500).json({ error: 'Failed to download video recording' });
@@ -438,7 +522,7 @@ const downloadVideoRecording = async (req, res) => {
 
 module.exports = { upload, uploadVideoRecording, downloadVideoRecording };
 
-// Stream video recording with Range support (playable in browser)
+// Stream video recording (Cloudinary-only, delegate to Cloudinary URL)
 const streamVideoRecording = async (req, res) => {
   try {
     const { filename } = req.params;
@@ -448,62 +532,30 @@ const streamVideoRecording = async (req, res) => {
       return res.status(400).json({ error: 'Invalid filename' });
     }
 
-    let filePath = path.join(__dirname, '../uploads/video-recordings', filename);
-    const fsRaw = require('fs');
-    const reqExt = path.extname(filename).toLowerCase();
-
-    // If MP4 requested but missing, convert from WEBM on-demand
-    if (!fsRaw.existsSync(filePath) && reqExt === '.mp4') {
-      const webmCandidate = filePath.replace(/\.mp4$/i, '.webm');
-      if (fsRaw.existsSync(webmCandidate)) {
-        try {
-          filePath = await convertToMp4(webmCandidate);
-        } catch (e) {
-          console.warn('⚠️ On-demand conversion failed (stream):', e?.message || e);
-        }
-      }
+    const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+    if (!cloudName) {
+      return res.status(500).json({ error: 'Cloud storage not configured' });
     }
-
-    // ensure file exists
-    if (!fsRaw.existsSync(filePath)) {
-      return res.status(404).json({ error: 'Video recording not found' });
-    }
-
-    const stat = fsRaw.statSync(filePath);
-    const fileSize = stat.size;
-    const range = req.headers.range;
-    const ext = path.extname(filePath).toLowerCase();
-    const contentType = ext === '.webm' ? 'video/webm' : 'video/mp4';
-
-    res.setHeader('Accept-Ranges', 'bytes');
-
-    if (range) {
-      const parts = range.replace(/bytes=/, '').split('-');
-      const start = parseInt(parts[0], 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-
-      if (start >= fileSize || end >= fileSize) {
-        res.setHeader('Content-Range', `bytes */${fileSize}`);
-        return res.status(416).end();
-      }
-
-      const chunkSize = (end - start) + 1;
-      const stream = fsRaw.createReadStream(filePath, { start, end });
-      res.writeHead(206, {
-        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-        'Content-Length': chunkSize,
-        'Content-Type': contentType,
-        'Cache-Control': 'private, max-age=604800',
+    const folder = process.env.CLOUDINARY_FOLDER || 'quluub/recordings';
+    const base = path.basename(filename, path.extname(filename));
+    const publicId = `${folder}/${base}`;
+    try {
+      cloudinary.config({
+        cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+        api_key: process.env.CLOUDINARY_API_KEY,
+        api_secret: process.env.CLOUDINARY_API_SECRET,
       });
-      stream.pipe(res);
-    } else {
-      res.writeHead(200, {
-        'Content-Length': fileSize,
-        'Content-Type': contentType,
-        'Cache-Control': 'private, max-age=604800',
-      });
-      fsRaw.createReadStream(filePath).pipe(res);
+      await cloudinary.api.resource(publicId, { resource_type: 'video' });
+    } catch (e) {
+      const msg = (e && (e.http_code === 404 || e?.error?.message?.includes('not found'))) ? 'Recording not found' : 'Cloudinary check failed';
+      const code = msg === 'Recording not found' ? 404 : 502;
+      console.warn(`⚠️ ${msg} for stream`, { publicId, err: e?.message || String(e) });
+      return res.status(code).json({ error: msg });
     }
+    const cloudUrl = `https://res.cloudinary.com/${cloudName}/video/upload/${publicId}.mp4`;
+    res.setHeader('Cache-Control', 'private, max-age=604800');
+    res.setHeader('x-cloudinary-public-id', publicId);
+    return res.redirect(cloudUrl);
   } catch (error) {
     console.error('Error streaming video recording:', error);
     res.status(500).json({ error: 'Failed to stream video recording' });
