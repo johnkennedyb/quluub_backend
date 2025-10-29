@@ -67,7 +67,7 @@ exports.getUserProfile = async (req, res) => {
     
     // For viewing others' profiles, exclude sensitive fields
     if (!isOwnProfile) {
-      selectFields += ' -email -phoneNumber -parentEmail -favorites -blockedUsers -reportedUsers';
+      selectFields += ' -email -phoneNumber -favorites -blockedUsers -reportedUsers';
 
       // Conditionally exclude waliDetails only if the user is not female
       const viewedUser = await User.findById(userId).select('gender').lean();
@@ -150,6 +150,62 @@ exports.getAllUsers = async (req, res) => {
   }
 };
 
+// Lightweight helpers for input normalization (no external imports)
+const tryJsonParse = (val) => {
+  if (typeof val !== 'string') return null;
+  try { return JSON.parse(val); } catch { return null; }
+};
+
+const normalizeToStringArray = (input) => {
+  const result = [];
+  const queue = [];
+  if (input !== undefined) queue.push(input);
+  let guard = 0;
+  while (queue.length && guard < 1000) {
+    guard++;
+    const item = queue.shift();
+    if (item == null) continue;
+    if (Array.isArray(item)) {
+      for (const el of item) queue.push(el);
+      continue;
+    }
+    if (typeof item === 'string') {
+      let s = item.trim();
+      if (!s) continue;
+      for (let i = 0; i < 4; i++) {
+        const parsed = tryJsonParse(s);
+        if (parsed === null) break;
+        if (Array.isArray(parsed)) { parsed.forEach(v => queue.push(v)); s = ''; break; }
+        if (typeof parsed === 'string') { s = parsed; continue; }
+        break;
+      }
+      if (s) {
+        if (s.startsWith('["') && s.endsWith('"]')) {
+          const arr = tryJsonParse(s);
+          if (Array.isArray(arr)) { arr.forEach(v => queue.push(v)); continue; }
+        }
+        s = s.replace(/^[\[\]\"']+|[\[\]\"']+$/g, '').trim();
+        if (!s || s === '[]') continue;
+        result.push(s);
+      }
+      continue;
+    }
+    if (typeof item === 'number' || typeof item === 'boolean') {
+      result.push(String(item));
+      continue;
+    }
+  }
+  const cleaned = result.map(v => v.trim()).filter(Boolean).filter(v => v !== '[]');
+  const unique = Array.from(new Set(cleaned));
+  return unique;
+};
+
+const normalizeEthnicity = (input) => {
+  const arr = normalizeToStringArray(input).map(s => s.replace(/[\[\]"\\]/g, '').trim()).filter(Boolean);
+  const unique = Array.from(new Set(arr));
+  return unique.slice(0, 2);
+};
+
 // @desc    Update user profile
 // @route   PUT /api/users/:id
 // @access  Private
@@ -188,7 +244,7 @@ exports.updateUserProfile = async (req, res) => {
     const updatableFields = [
       // Basic Info
       'fname', 'lname', 'kunya', 'dob', 'maritalStatus', 'noOfChildren', 
-      'summary', 'workEducation', 'parentEmail', 'profile_pic', 'hidden',
+      'summary', 'workEducation', 'profile_pic', 'hidden',
       
       // Location and Ethnicity
       'nationality', 'country', 'state', 'city', 'region', 'ethnicity',
@@ -215,11 +271,47 @@ exports.updateUserProfile = async (req, res) => {
     let fieldsUpdated = 0;
     let fieldsSkipped = [];
     
+    const body = { ...req.body };
+
+    // parentEmail removed from system
+
+    if (Object.prototype.hasOwnProperty.call(body, 'ethnicity')) {
+      body.ethnicity = normalizeEthnicity(body.ethnicity);
+    }
+
+    ['traits', 'interests', 'openToMatches'].forEach((f) => {
+      if (Object.prototype.hasOwnProperty.call(body, f)) {
+        const arr = normalizeToStringArray(body[f]);
+        body[f] = JSON.stringify(arr);
+      }
+    });
+
+    if (Object.prototype.hasOwnProperty.call(body, 'waliDetails')) {
+      const w = body.waliDetails;
+      if (w && typeof w === 'object') {
+        body.waliDetails = JSON.stringify(w);
+      } else if (typeof w === 'string') {
+        const parsed = tryJsonParse(w);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          body.waliDetails = JSON.stringify(parsed);
+        } else {
+          body.waliDetails = w.trim();
+        }
+      } else if (w == null) {
+        delete body.waliDetails;
+      }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(body, 'dob')) {
+      const d = new Date(body.dob);
+      if (!isNaN(d)) body.dob = d; else delete body.dob;
+    }
+
     updatableFields.forEach(field => {
-      if (req.body[field] !== undefined) {
+      if (body[field] !== undefined) {
         const oldValue = user[field];
-        user[field] = req.body[field];
-        console.log(`✏️ Updated ${field}: "${oldValue}" → "${req.body[field]}"`);
+        user[field] = body[field];
+        console.log(`✏️ Updated ${field}: "${oldValue}" → "${body[field]}"`);
         fieldsUpdated++;
       } else {
         fieldsSkipped.push(field);
@@ -311,7 +403,6 @@ exports.updateUserProfile = async (req, res) => {
       noOfChildren: updatedUser.noOfChildren,
       summary: updatedUser.summary,
       workEducation: updatedUser.workEducation,
-      parentEmail: updatedUser.parentEmail,
       profile_pic: updatedUser.profile_pic,
       hidden: updatedUser.hidden,
       
@@ -928,7 +1019,7 @@ exports.searchUsers = async (req, res) => {
 
     // Execute query
     const users = await User.find(query)
-      .select('-password -resetPasswordToken -resetPasswordTokenExpiration -validationToken -email -phoneNumber -parentEmail -waliDetails -favorites -blockedUsers -reportedUsers')
+      .select('-password -resetPasswordToken -resetPasswordTokenExpiration -validationToken -email -phoneNumber -waliDetails -favorites -blockedUsers -reportedUsers')
       .sort(sortOptions)
       .skip(skip)
       .limit(limitNum)
@@ -1035,19 +1126,88 @@ exports.deleteAccount = async (req, res) => {
       // Import required models
       const Relationship = require('../models/Relationship');
       const Chat = require('../models/Chat');
+      const Conversation = require('../models/Conversation');
+      const Message = require('../models/Message');
       const Notification = require('../models/Notification');
       const Payment = require('../models/Payment');
       const Subscription = require('../models/Subscription');
       const UserActivityLog = require('../models/UserActivityLog');
-      
-      // Delete all related data
-      await Relationship.deleteMany({ $or: [{ user1: userId }, { user2: userId }] }, { session });
-      await Chat.deleteMany({ participants: userId }, { session });
-      await Notification.deleteMany({ recipient: userId }, { session });
+      const VideoCallTime = require('../models/VideoCallTime');
+      const MonthlyCallUsage = require('../models/MonthlyCallUsage');
+      const Call = require('../models/Call');
+      const WaliChat = require('../models/WaliChat');
+      const Report = require('../models/Report');
+      const ScheduledEmail = require('../models/ScheduledEmail');
+      const PushNotification = require('../models/PushNotification');
+
+      // Normalize id for string-based schemas
+      const userIdStr = userId.toString();
+
+      // Delete all related data (match actual schema fields)
+      await Relationship.deleteMany(
+        { $or: [{ follower_user_id: userIdStr }, { followed_user_id: userIdStr }] },
+        { session }
+      );
+
+      await Chat.deleteMany(
+        { $or: [{ senderId: userId }, { receiverId: userId }] },
+        { session }
+      );
+
+      await Conversation.deleteMany({ participants: userId }, { session });
+
+      await Message.deleteMany(
+        { $or: [{ sender: userId }, { receiver: userId }] },
+        { session }
+      );
+
+      await Notification.deleteMany(
+        { $or: [
+          { user: userId },
+          { 'data.callerId': userId },
+          { 'data.recipientId': userId },
+          { 'data.matchId': userId }
+        ] },
+        { session }
+      );
+
       await Payment.deleteMany({ user: userId }, { session });
       await Subscription.deleteMany({ user: userId }, { session });
       await UserActivityLog.deleteMany({ user: userId }, { session });
-      
+
+      await VideoCallTime.deleteMany(
+        { $or: [{ user1: userId }, { user2: userId }] },
+        { session }
+      );
+
+      await MonthlyCallUsage.deleteMany(
+        { $or: [{ user1: userId }, { user2: userId }] },
+        { session }
+      );
+
+      await Call.deleteMany(
+        { $or: [{ caller: userId }, { recipient: userId }, { 'participants.userId': userId }] },
+        { session }
+      );
+
+      await WaliChat.deleteMany(
+        { $or: [{ wardid: userId }, { wardcontactid: userId }] },
+        { session }
+      );
+
+      await Report.deleteMany(
+        { $or: [{ reporter: userId }, { reported: userId }, { reviewedBy: userId }] },
+        { session }
+      );
+
+      // Remove user from recipients/targets arrays
+      await ScheduledEmail.updateMany({}, { $pull: { recipients: userId } }, { session });
+      await PushNotification.updateMany({}, { $pull: { targetUsers: userId } }, { session });
+      await PushNotification.deleteMany({ createdBy: userId }, { session });
+
+      // Remove this user from other users' favorites arrays
+      await User.updateMany({}, { $pull: { favorites: userId } }, { session });
+
       // Finally, delete the user account
       await User.deleteOne({ _id: userId }, { session });
       

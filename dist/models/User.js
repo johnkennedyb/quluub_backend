@@ -27,10 +27,6 @@ const userSchema = new mongoose.Schema(
       type: String, 
       required: true 
     },
-    parentEmail: {
-      type: String,
-      required: true
-    },
     plan: {
       type: String,
       enum: ["freemium", "premium"],

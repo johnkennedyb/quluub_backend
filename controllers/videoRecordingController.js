@@ -361,18 +361,12 @@ const uploadVideoRecording = async (req, res) => {
                   <div style="background-color: #fff3cd; padding: 20px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #ffc107;">
                     <h4 style="margin: 0 0 10px 0; color: #856404;">📹 Video Recording Available</h4>
                     <p style="margin: 0 0 15px 0; color: #856404; line-height: 1.5;">
-                      The complete video call recording is ready to watch. Click the button below to securely watch the recording online (no download required). If your browser cannot play it, use the fallback download link below.
+                      The complete video call recording is ready to watch. Click the button below to securely watch the recording online (no download required).
                     </p>
                     <div style="text-align: center; margin: 15px 0;">
                       <a href="${watchLink}" 
                          style="display: inline-block; padding: 12px 24px; background-color: #007bff; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 14px;">
                         ▶ Watch Video Recording
-                      </a>
-                    </div>
-                    <div style="text-align: center; margin: 8px 0;">
-                      <a href="${downloadLink}" 
-                         style="display: inline-block; padding: 10px 18px; background-color: #28a745; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 12px;">
-                        📥 Fallback: Download Video (MP4)
                       </a>
                     </div>
                     <p style="margin: 15px 0 0 0; color: #856404; font-size: 12px; text-align: center;">
@@ -385,7 +379,7 @@ const uploadVideoRecording = async (req, res) => {
                       This recording is provided for Islamic compliance and supervision purposes.<br>
                       Please keep this recording confidential and secure.<br><br>
                       <strong>Quluub - Islamic Marriage Platform</strong><br>
-                      <em>Connecting Hearts, Honoring Faith</em>
+                      <em>where every heart finds a home..</em>
                     </p>
                   </div>
                 </div>

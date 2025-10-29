@@ -5,229 +5,209 @@ const jwt = require('jsonwebtoken');
 const generateToken = require('../utils/generateToken');
 const crypto = require('crypto');
 const axios = require('axios');
-const { sendValidationEmail, sendWelcomeEmail, sendWaliNewJoinerEmail } = require('../utils/emailService');
+const { sendValidationEmail, sendWelcomeEmail } = require('../utils/emailService');
 
 // Regular signup
 const signup = async (req, res) => {
-  try {
-    const { 
-      username, email, password, fname, lname, gender, parentEmail, 
-      ethnicity, dob, dateOfBirth, 
-      country, state, city, countryOfResidence, stateOfResidence, cityOfResidence,
-      summary, kunya, nationality, region, height, weight, build, appearance,
-      hijab, beard, maritalStatus, noOfChildren, patternOfSalaah, revert,
-      sect, scholarsSpeakers, dressingCovering, islamicPractice, genotype,
-      workEducation, traits, interests, openToMatches, dealbreakers, icebreakers,
-      waliDetails
-    } = req.body;
+  try {
+    const { 
+      username, email, password, fname, lname, gender,
+      ethnicity, dob, dateOfBirth, 
+      country, state, city, countryOfResidence, stateOfResidence, cityOfResidence,
+      summary, kunya, nationality, region, height, weight, build, appearance,
+      hijab, beard, maritalStatus, noOfChildren, patternOfSalaah, revert,
+      sect, scholarsSpeakers, dressingCovering, islamicPractice, genotype,
+      workEducation, traits, interests, openToMatches, dealbreakers, icebreakers,
+      waliDetails
+    } = req.body;
 
-    console.log('Signup attempt:', { username, email, fname, lname, gender });
+    console.log('Signup attempt:', { username, email, fname, lname, gender });
 
-    // Validate required fields
-    if (!username || !email || !password || !fname || !lname || !gender) {
-      return res.status(400).json({ 
-        message: 'All fields are required: username, email, password, fname, lname, gender' 
-      });
-    }
+    // Validate required fields
+    if (!username || !email || !password || !fname || !lname || !gender) {
+      return res.status(400).json({ 
+        message: 'All fields are required: username, email, password, fname, lname, gender' 
+      });
+    }
 
-    // Check if user already exists
-    const existingUser = await User.findOne({ 
-      $or: [{ email }, { username }] 
-    });
+    // Check if user already exists
+    const existingUser = await User.findOne({ 
+      $or: [{ email }, { username }] 
+    });
 
-    if (existingUser) {
-      return res.status(400).json({ 
-        message: existingUser.email === email ? 'Email already registered' : 'Username already taken' 
-      });
-    }
+    if (existingUser) {
+      return res.status(400).json({ 
+        message: existingUser.email === email ? 'Email already registered' : 'Username already taken' 
+      });
+    }
 
-    // Hash password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
+    // Hash password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
 
-    // Create user
-    const user = await User.create({
-      username,
-      email,
-      password: hashedPassword,
-      fname,
-      lname,
-      gender,
-      parentEmail: parentEmail || email, // Use parentEmail if provided, otherwise use user email
-      type: 'USER',
-      
-      // Basic Profile Info
-      kunya,
-      
-      // Date of Birth
-      dob: dob || dateOfBirth, // Accept both dob and dateOfBirth fields
-      
-      // Location and Demographics
-      nationality,
-      country: country || countryOfResidence, // Accept both formats
-      state: state || stateOfResidence, // Accept both formats
-      city: city || cityOfResidence, // Accept both formats
-      region,
-      
-      // Physical Appearance
-      height,
-      weight,
-      build,
-      appearance,
-      hijab: hijab || 'No',
-      beard: beard || 'No',
-      
-      // Family and Marital
-      maritalStatus,
-      noOfChildren,
-      
-      // Ethnicity
-      ethnicity: ethnicity || [],
-      
-      // Islamic Practice and Deen
-      patternOfSalaah,
-      revert,
-      sect,
-      scholarsSpeakers,
-      dressingCovering,
-      islamicPractice,
-      
-      // Medical and Health
-      genotype,
-      
-      // Profile Content
-      summary,
-      workEducation,
-      
-      // Lifestyle and Personality (JSON strings for arrays)
-      traits,
-      interests,
-      
-      // Matching Preferences
-      openToMatches,
-      dealbreakers,
-      icebreakers,
-      
-      // Wali Details
-      waliDetails: waliDetails || ''
-    });
+    // Create user
+    const user = await User.create({
+      username,
+      email,
+      password: hashedPassword,
+      fname,
+      lname,
+      gender,
+      type: 'USER',
+      // Basic Profile Info
+      kunya,
+      // Date of Birth
+      dob: dob || dateOfBirth, // Accept both dob and dateOfBirth fields
+      // Location and Demographics
+      nationality,
+      country: country || countryOfResidence, // Accept both formats
+      state: state || stateOfResidence, // Accept both formats
+      city: city || cityOfResidence, // Accept both formats
+      region,
+      // Physical Appearance
+      height,
+      weight,
+      build,
+      appearance,
+      hijab: hijab || 'No',
+      beard: beard || 'No',
+      // Family and Marital
+      maritalStatus,
+      noOfChildren,
+      // Ethnicity
+      ethnicity: ethnicity || [],
+      // Islamic Practice and Deen
+      patternOfSalaah,
+      revert,
+      sect,
+      scholarsSpeakers,
+      dressingCovering,
+      islamicPractice,
+      // Medical and Health
+      genotype,
+      // Profile Content
+      summary,
+      workEducation,
+      // Lifestyle and Personality (JSON strings for arrays)
+      traits,
+      interests,
+      // Matching Preferences
+      openToMatches,
+      dealbreakers,
+      icebreakers,
+      // Wali Details
+      waliDetails: waliDetails || ''
+    });
 
-    if (user) {
-      // Send welcome email only (email already verified during pre-signup)
-      try {
-        // Mark email as verified since user completed pre-signup verification
-        user.emailVerified = true;
-        await user.save();
+    if (user) {
+      // Send welcome email only (email already verified during pre-signup)
+      try {
+        // Mark email as verified since user completed pre-signup verification
+        user.emailVerified = true;
+        await user.save();
 
-        // Only send welcome email - no verification needed
-        sendWelcomeEmail(user.email, user.fname);
+        // Only send welcome email - no verification needed
+        sendWelcomeEmail(user.email, user.fname);
 
-        // If the user is female and provided a parent's email, notify the Wali
-        if (user.gender === 'female' && user.parentEmail && user.parentEmail !== user.email) {
-          sendWaliNewJoinerEmail(user.parentEmail, "Guardian", user.fname);
-        }
-      } catch (emailError) {
-        console.error('Error sending emails during signup:', emailError);
-      }
+      } catch (emailError) {
+        console.error('Error sending emails during signup:', emailError);
+      }
 
-      const token = generateToken(user._id);
-      res.status(201).json({
-        _id: user._id,
-        username: user.username,
-        email: user.email,
-        fname: user.fname,
-        lname: user.lname,
-        gender: user.gender,
-        parentEmail: user.parentEmail,
-        type: user.type,
-        token,
-        user: {
-          _id: user._id,
-          username: user.username,
-          email: user.email,
-          fname: user.fname,
-          lname: user.lname,
-          gender: user.gender,
-          parentEmail: user.parentEmail,
-          type: user.type
-        }
-      });
-    } else {
-      res.status(400).json({ message: 'Invalid user data' });
-    }
-  } catch (error) {
-    console.error('Signup error:', error);
-    res.status(500).json({ message: 'Server error during signup' });
-  }
+      const token = generateToken(user._id);
+      res.status(201).json({
+        _id: user._id,
+        username: user.username,
+        email: user.email,
+        fname: user.fname,
+        lname: user.lname,
+        gender: user.gender,
+        type: user.type,
+        token,
+        user: {
+          _id: user._id,
+          username: user.username,
+          email: user.email,
+          fname: user.fname,
+          lname: user.lname,
+          gender: user.gender,
+          type: user.type
+        }
+      });
+    } else {
+      res.status(400).json({ message: 'Invalid user data' });
+    }
+  } catch (error) {
+    console.error('Signup error:', error);
+    res.status(500).json({ message: 'Server error during signup' });
+  }
 };
 
 // Admin signup
 const adminSignup = async (req, res) => {
-  try {
-    const { username, email, password, fname, lname, adminKey } = req.body;
+  try {
+    const { username, email, password, fname, lname, adminKey } = req.body;
 
-    console.log('Admin signup attempt:', { username, email, fname, lname });
+    console.log('Admin signup attempt:', { username, email, fname, lname });
 
-    // Verify admin key (you should set this in your environment variables)
-    const ADMIN_SIGNUP_KEY = process.env.ADMIN_SIGNUP_KEY || 'admin123';
-    if (adminKey !== ADMIN_SIGNUP_KEY) {
-      return res.status(403).json({ message: 'Invalid admin key' });
-    }
+    // Verify admin key (you should set this in your environment variables)
+    const ADMIN_SIGNUP_KEY = process.env.ADMIN_SIGNUP_KEY || 'admin123';
+    if (adminKey !== ADMIN_SIGNUP_KEY) {
+      return res.status(403).json({ message: 'Invalid admin key' });
+    }
 
-    // Check if user already exists
-    const existingUser = await User.findOne({ 
-      $or: [{ email }, { username }] 
-    });
+    // Check if user already exists
+    const existingUser = await User.findOne({ 
+      $or: [{ email }, { username }] 
+    });
 
-    if (existingUser) {
-      return res.status(400).json({ 
-        message: existingUser.email === email ? 'Email already registered' : 'Username already taken' 
-      });
-    }
+    if (existingUser) {
+      return res.status(400).json({ 
+        message: existingUser.email === email ? 'Email already registered' : 'Username already taken' 
+      });
+    }
 
-    // Hash password for admin too
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
+    // Hash password for admin too
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
 
-    // Create admin user
-    const user = await User.create({
-      username,
-      email,
-      password: hashedPassword,
-      fname,
-      lname,
-      gender: 'other', // Default for admin
-      parentEmail: email, // Use admin email as parent email
-      type: 'ADMIN',
-      status: 'active' // Admin accounts are active by default
-    });
+    // Create admin user
+    const user = await User.create({
+      username,
+      email,
+      password: hashedPassword,
+      fname,
+      lname,
+      gender: 'other', // Default for admin
+      type: 'ADMIN',
+      status: 'active' // Admin accounts are active by default
+    });
 
-    if (user) {
-      const token = generateToken(user._id);
-      res.status(201).json({
-        _id: user._id,
-        username: user.username,
-        email: user.email,
-        fname: user.fname,
-        lname: user.lname,
-        type: user.type,
-        token,
-        user: {
-          _id: user._id,
-          username: user.username,
-          email: user.email,
-          fname: user.fname,
-          lname: user.lname,
-          type: user.type
-        }
-      });
-    } else {
-      res.status(400).json({ message: 'Invalid admin data' });
-    }
-  } catch (error) {
-    console.error('Admin signup error:', error);
-    res.status(500).json({ message: 'Server error during admin signup' });
-  }
+    if (user) {
+      const token = generateToken(user._id);
+      res.status(201).json({
+        _id: user._id,
+        username: user.username,
+        email: user.email,
+        fname: user.fname,
+        lname: user.lname,
+        type: user.type,
+        token,
+        user: {
+          _id: user._id,
+          username: user.username,
+          email: user.email,
+          fname: user.fname,
+          lname: user.lname,
+          type: user.type
+        }
+      });
+    } else {
+      res.status(400).json({ message: 'Invalid admin data' });
+    }
+  } catch (error) {
+    console.error('Admin signup error:', error);
+    res.status(500).json({ message: 'Server error during admin signup' });
+  }
 };
 
 // Login
@@ -396,7 +376,6 @@ const googleAuth = async (req, res) => {
         status: 'active',
         plan: 'freemium',
         gender: 'other', // Default gender for Google OAuth users
-        parentEmail: googleUser.email, // Use Google email as parent email
         lastSeen: new Date(),
         type: 'USER'
       });

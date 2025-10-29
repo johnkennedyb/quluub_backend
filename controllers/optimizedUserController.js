@@ -14,7 +14,7 @@ const getProfileWithRelationships = async (req, res) => {
     
     // Get target user profile
     const targetUser = await User.findById(targetUserId)
-      .select('-password -resetPasswordToken -resetPasswordTokenExpiration -validationToken -email -phoneNumber -parentEmail -waliDetails -favorites -blockedUsers -reportedUsers');
+      .select('-password -resetPasswordToken -resetPasswordTokenExpiration -validationToken -email -phoneNumber -waliDetails -favorites -blockedUsers -reportedUsers');
     
     if (!targetUser) {
       return res.status(404).json({ message: 'User not found' });

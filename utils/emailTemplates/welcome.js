@@ -2,7 +2,7 @@ const emailHeader = require('./components/emailHeader');
 const emailFooterWithIcons = require('./components/emailFooterWithIcons');
 
 const welcomeEmail = (recipientName) => {
-  const subject = 'Welcome to Quluub - Your Journey Begins!';
+  const subject = 'Welcome to Quluub!';
   const title = 'Welcome to Quluub!';
   const html = `
     <!DOCTYPE html>
@@ -30,15 +30,15 @@ const welcomeEmail = (recipientName) => {
             <table class="container" width="600" border="0" cellspacing="0" cellpadding="0" style="max-width:600px; background-color:#ffffff;">
               <tr>
                 <td style="padding:30px; font-family: Arial, sans-serif; font-size:16px; color:#333; line-height:1.6;">
-                  <p>Salaamun alaekum ${recipientName},</p>
-                  <p>Welcome to Quluub! We are delighted to have you join our community. Our platform is designed to help you find a compatible partner in a way that is secure and aligns with Islamic values.</p>
-                  <p>Here are a few steps to get you started:</p>
-                  <ul style="padding-left: 20px;">
-                    <li>Complete your profile to attract the best matches.</li>
-                    <li>Set your preferences to filter your search.</li>
-                    <li>Explore profiles and connect with members.</li>
-                  </ul>
-                  <p>If you have any questions, feel free to visit our FAQ page or contact our support team. May your journey with us be a blessed one.</p>
+                  <p>Dear ${recipientName},</p>
+                  <p>Salaamun alaekum</p>
+                  <p>Welcome to Quluub! We are delighted to have you join our community.</p>
+                  <p>Your subscription opens the door to a platform dedicated to helping you find a compatible partner while upholding our shared values. Start exploring profiles, connect with like-minded individuals, and take the next step towards a fulfilling marriage.</p>
+                  <p>If you have any questions or need assistance, our support team is here to help.</p>
+                  <p>You can join our WhatsApp community by clicking the link below:</p>
+                  <p><a href="https://whatsapp.com/channel/0029VaqaEwjL7UVYhsQind1M" style="color:#075e54; text-decoration:underline;">https://whatsapp.com/channel/0029VaqaEwjL7UVYhsQind1M</a></p>
+                  <p>May Allaah bless you on this journey.</p>
+                  <p>JazaakumuLlahu khairan,<br/>The Quluub Team<br/><span style="opacity:0.9;">Where every heart finds a home.</span></p>
                 </td>
               </tr>
             </table>
