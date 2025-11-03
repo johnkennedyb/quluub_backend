@@ -534,13 +534,25 @@ io.on('connection', (socket) => {
     if (duration && callerId && recipientId) {
       try {
         const VideoCallTime = require('./models/VideoCallTime');
+        const [user1, user2] = callerId.toString() < recipientId.toString()
+          ? [callerId, recipientId]
+          : [recipientId, callerId];
+
         await VideoCallTime.findOneAndUpdate(
-          { callerId, recipientId },
-          { 
+          { user1, user2 },
+          {
             $inc: { totalTimeSpent: duration },
-            lastCallDate: new Date()
+            $push: {
+              callSessions: {
+                startTime: new Date(Date.now() - duration * 1000),
+                endTime: new Date(),
+                duration,
+                callType: 'getstream'
+              }
+            },
+            updatedAt: new Date()
           },
-          { upsert: true }
+          { upsert: true, new: true, setDefaultsOnInsert: true }
         );
         console.log('✅ GetStream call duration tracked:', { callerId, recipientId, duration });
       } catch (error) {
