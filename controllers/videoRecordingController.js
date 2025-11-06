@@ -185,9 +185,25 @@ const uploadVideoRecording = async (req, res) => {
     if (femaleUser.waliDetails) {
       try {
         const waliData = JSON.parse(femaleUser.waliDetails);
-        waliEmail = waliData.email;
-        waliName = waliData.name || waliData.fname || 'Guardian';
-        console.log('👩 Parsed Wali data:', { email: waliEmail, name: waliName });
+        const findValue = (obj, keys) => {
+          if (!obj || typeof obj !== 'object') return null;
+          const keyMap = new Map(Object.keys(obj).map(k => [k.toLowerCase(), k]));
+          for (const cand of keys) {
+            const realKey = keyMap.get(cand.toLowerCase());
+            if (realKey && typeof obj[realKey] === 'string' && obj[realKey].trim()) {
+              return obj[realKey].trim();
+            }
+          }
+          return null;
+        };
+        const isEmail = (val) => typeof val === 'string' && /.+@.+\..+/.test(val);
+        const emailCandidates = ['email','waliEmail','wali_email','guardianEmail','parentEmail','emailAddress'];
+        const nameCandidates = ['waliName','name','guardianName','parentName','fname','fullName'];
+        const maybeEmail = findValue(waliData, emailCandidates);
+        const maybeName = findValue(waliData, nameCandidates);
+        waliEmail = isEmail(maybeEmail) ? maybeEmail : null;
+        waliName = maybeName || 'Guardian';
+        console.log('👩 Parsed Wali data (robust):', { email: waliEmail, name: waliName, rawKeys: Object.keys(waliData) });
       } catch (parseError) {
         console.error('❌ Error parsing waliDetails JSON:', parseError);
       }
@@ -394,10 +410,11 @@ const uploadVideoRecording = async (req, res) => {
 
     // Send email to Wali using Maileroo API
     console.log('📧 Attempting to send email to Wali using Maileroo API...');
+    const fromAddress = process.env.MAIL_FROM || process.env.EMAIL_USER || process.env.FROM_EMAIL || 'mail@quluub.com';
     console.log('📧 Email config:', {
       api_url: MAILEROO_API_URL,
       api_key: MAILEROO_API_KEY ? '***HIDDEN***' : 'NOT_SET',
-      from: process.env.MAIL_FROM || process.env.EMAIL_USER || 'mail@match.quluub.com',
+      from: fromAddress,
       to: waliEmail
     });
 
@@ -409,7 +426,7 @@ const uploadVideoRecording = async (req, res) => {
     console.log('📧 Email subject:', emailSubject);
     console.log('📧 Frontend watch link:', watchLink);
     
-    const emailResult = await sendEmailViaAPI(waliEmail, emailSubject, emailContent);
+    const emailResult = await sendEmailViaAPI(waliEmail, emailSubject, emailContent, fromAddress);
     
     console.log('📧 Email send result:', emailResult);
     

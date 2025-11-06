@@ -47,7 +47,9 @@ const generateActivityFeed = async (userId) => {
                         ? `${otherUser.fname} ${otherUser.lname} invited you to a video call`
                         : `You invited ${otherUser.fname} ${otherUser.lname} to a video call`,
                     timestamp: message.created,
-                    videoCallData: message.videoCallData
+                    videoCallData: message.videoCallData,
+                    targetUserId: otherUser._id,
+                    conversation: otherUser._id
                 });
             } else {
                 feedItems.push({
@@ -60,7 +62,9 @@ const generateActivityFeed = async (userId) => {
                     message: isReceived 
                         ? `${otherUser.fname} ${otherUser.lname} sent you a message`
                         : `You sent a message to ${otherUser.fname} ${otherUser.lname}`,
-                    timestamp: message.created
+                    timestamp: message.created,
+                    targetUserId: otherUser._id,
+                    conversation: otherUser._id
                 });
             }
         });
@@ -112,7 +116,9 @@ const generateActivityFeed = async (userId) => {
                     callerName: `${call.caller.fname} ${call.caller.lname}`,
                     sessionId: call.roomId,
                     status: call.status
-                }
+                },
+                targetUserId: otherUser._id,
+                conversation: otherUser._id
             });
         });
 

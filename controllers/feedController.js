@@ -121,7 +121,9 @@ exports.getFeed = async (req, res) => {
           profile_pic: otherUser.profile_pic
         },
         message: displayMessage,
-        timestamp: message.created
+        timestamp: message.created,
+        targetUserId: otherUser._id,
+        conversation: otherUser._id
       });
     });
 
