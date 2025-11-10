@@ -3,7 +3,7 @@ const emailFooterWithIcons = require('./components/emailFooterWithIcons');
 
 const waliViewChatEmail = (waliName, wardName, brotherName, chatLink) => {
   const subject = 'Notification: Your Ward is Chatting on Quluub';
-  const title = 'Your Ward is Chatting';
+  const title = 'Monitor The Chat';
   const html = `
     <!DOCTYPE html>
     <html lang="en">
@@ -30,15 +30,16 @@ const waliViewChatEmail = (waliName, wardName, brotherName, chatLink) => {
             <table class="container" width="600" border="0" cellspacing="0" cellpadding="0" style="max-width:600px; background-color:#ffffff;">
               <tr>
                 <td style="padding:30px; font-family: Arial, sans-serif; font-size:16px; color:#333; line-height:1.6;">
-                  <p>Dear ${waliName},</p>
-                  <p>Salaamun alaekum</p>
+                  <p>Salaamun alaekum ${waliName},</p>
                   <p>We wanted to inform you that your ward, ${wardName}, is currently chatting with ${brotherName} on Quluub. As her guardian, you can view the conversation through the following link:</p>
                   <p style="text-align: center; margin: 30px 0;">
                     <a href="${chatLink}" style="background-color: #075e54; color: white; padding: 15px 25px; text-decoration: none; border-radius: 5px; font-size: 16px;">View Chat</a>
                   </p>
                   <p>Thank you for your attention to this matter.</p>
-                  <p>JazaakumuLlahu khairan,<br>
-                  The Quluub Team</p>
+                  <p>May Allaah grant you success in this journey.</p>
+                  <p>JazaakumuLlahu khairan,<br/>
+                  The Quluub Team<br/>
+                  <span style="opacity:0.9;">Where every heart finds a home.</span></p>
                 </td>
               </tr>
             </table>

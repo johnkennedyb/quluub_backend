@@ -37,6 +37,8 @@ const suggestedAccountsEmail = (recipientName) => {
                   <p style="font-family: Arial, sans-serif; font-size:16px; color:#333; text-align: center; margin: 30px 0;">
                     <a href="${process.env.FRONTEND_URL}/matches" style="background-color: #075e54; color: white; padding: 15px 25px; text-decoration: none; border-radius: 5px; font-size: 16px;">View Potential Matches</a>
                   </p>
+                  <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">May Allaah grant you success in this journey.</p>
+                  <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">JazaakumuLlahu khairan,<br/>The Quluub Team<br/><span style="opacity:0.9;">Where every heart finds a home.</span></p>
                 </td>
               </tr>
             </table>

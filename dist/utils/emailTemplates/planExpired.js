@@ -3,7 +3,7 @@ const emailFooterWithIcons = require('./components/emailFooterWithIcons');
 
 const planExpiredEmail = (recipientName) => {
   const subject = 'Action Required: Your Quluub Premium Plan Has Expired';
-  const title = 'Your Plan Has Expired';
+  const title = 'Premium Plan Has Expired';
   const html = `
     <!DOCTYPE html>
     <html lang="en">
@@ -33,15 +33,13 @@ const planExpiredEmail = (recipientName) => {
                   <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">Dear ${recipientName},</p>
                   <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">Salaamun alaekum</p>
                   <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">
-                    We hope this message finds you well. We wanted to inform you that your Quluub Premium Plan has expired. To continue enjoying our premium features, including sending up to 5 connection requests per month and an ad-free experience, please consider renewing your plan.
+                    We hope this message finds you well. We wanted to inform you that your Quluub Premium Plan has expired. To continue enjoying our premium features, including sending up to 5 connection requests per month, 5 minutes video calling and an ad-free experience, please consider renewing your plan.
                   </p>
                   <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">
                     Renew your plan now to stay connected effortlessly!
                   </p>
-                  <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">
-                    JazaakumuLlahu khairan,<br>
-                    The Quluub Team
-                  </p>
+                  <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">May Allaah grant you success in this journey.</p>
+                  <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">JazaakumuLlahu khairan,<br/>The Quluub Team<br/><span style="opacity:0.9;">Where every heart finds a home.</span></p>
                 </td>
               </tr>
             </table>

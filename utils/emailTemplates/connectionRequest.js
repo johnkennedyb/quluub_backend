@@ -34,6 +34,8 @@ const connectionRequestEmail = (recipientName, requesterUsername) => {
                   <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">
                     You've received a new connection request from <strong>${requesterUsername}</strong> on Quluub! Log in now to view and respond.
                   </p>
+                  <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">May Allaah grant you success in this journey.</p>
+                  <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">JazaakumuLlahu khairan,<br/>The Quluub Team<br/><span style="opacity:0.9;">Where every heart finds a home.</span></p>
                 </td>
               </tr>
             </table>

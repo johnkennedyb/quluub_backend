@@ -82,9 +82,9 @@ const startScheduler = () => {
     }
   });
 
-  // 3. Pending Connection Requests Reminder (runs every 3 days at 10 AM)
-  cron.schedule('0 10 */3 * *', async () => {
-    console.log('Running pending connection requests reminder job...');
+  // 3. Pending Connection Requests Reminder (runs every 48 hours at 10 AM)
+  cron.schedule('0 10 */2 * *', async () => {
+    console.log('Running pending connection requests reminder job (every 48 hours)...');
     try {
       const pendingRequests = await Relationship.aggregate([
         { $match: { status: 'pending' } },
@@ -218,9 +218,9 @@ const startScheduler = () => {
     }
   });
 
-  // 6. Encourage Unhiding Profile (runs every Monday at 11 AM)
-  cron.schedule('0 11 * * 1', async () => {
-    console.log('Running encourage unhide profile job...');
+  // 6. Encourage Unhiding Profile (runs on the 1st of every month at 11 AM)
+  cron.schedule('0 11 1 * *', async () => {
+    console.log('Running encourage unhide profile job (monthly)...');
     try {
       const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
       const hiddenUsers = await User.find({

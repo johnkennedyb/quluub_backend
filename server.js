@@ -21,7 +21,6 @@ const feedRoutes = require('./routes/feedRoutes');
 const monthlyUsageRoutes = require('./routes/monthlyUsageRoutes');
 const dashboardRoutes = require('./routes/dashboard');
 const getstreamVideoCallRoutes = require('./routes/getstreamVideoCallRoutes');
-const videoRecordingRoutes = require('./routes/videoRecordingRoutes');
 const videoCallTimeRoutes = require('./routes/videoCallTime');
 const cors = require('cors');
 const mongoose = require('mongoose');
@@ -104,8 +103,8 @@ const io = new Server(server, {
   }
 });
 
-// Initialize user tracking maps
 let onlineUsers = new Map();
+let sentWaliCallEmail = new Set();
 // Track active calls by sessionId to compute duration server-side (legacy - removed for PeerJS)
 // let activeCalls = new Map();
 
@@ -560,6 +559,61 @@ io.on('connection', (socket) => {
       }
     }
 
+    try {
+      if (sessionId && !sentWaliCallEmail.has(sessionId)) {
+        sentWaliCallEmail.add(sessionId);
+
+        const { sendEmail } = require('./utils/emailService');
+        const waliVideoCallParticipationEmail = require('./utils/emailTemplates/waliVideoCallParticipation');
+
+        const [callerUser, recipientUser] = await Promise.all([
+          User.findById(callerId).select('fname lname gender waliDetails'),
+          User.findById(recipientId).select('fname lname gender waliDetails')
+        ]);
+
+        if (callerUser || recipientUser) {
+          const wardUser = (recipientUser && recipientUser.gender === 'female')
+            ? recipientUser
+            : (callerUser && callerUser.gender === 'female')
+              ? callerUser
+              : null;
+          const otherUser = wardUser && callerUser && wardUser._id.toString() === callerUser._id.toString() ? recipientUser : callerUser;
+
+          if (wardUser) {
+            let waliEmail = '';
+            let waliName = '';
+            try {
+              if (wardUser.waliDetails) {
+                const wd = JSON.parse(wardUser.waliDetails);
+                waliEmail = wd?.email || wd?.waliEmail || wd?.wali_email || wd?.guardianEmail || wd?.parentEmail || wd?.emailAddress || '';
+                waliName = wd?.name || wd?.fullName || wd?.waliName || '';
+              }
+            } catch (e) {
+              console.warn('⚠️ Failed to parse waliDetails JSON for user:', wardUser._id?.toString());
+            }
+
+            if (waliEmail) {
+              const waliFirstName = (waliName || '').trim().split(' ')[0] || 'Guardian';
+              const wardName = `${wardUser.fname || ''} ${wardUser.lname || ''}`.trim();
+              const brotherName = otherUser ? `${otherUser.fname || ''} ${otherUser.lname || ''}`.trim() : 'A member';
+
+              try {
+                await sendEmail({
+                  ...waliVideoCallParticipationEmail(waliFirstName, wardName, brotherName, 'mailto:support@quluub.com'),
+                  to: waliEmail
+                });
+                console.log('✅ Wali participation email sent for session:', sessionId, 'to:', waliEmail);
+              } catch (emailErr) {
+                console.error('❌ Failed to send Wali participation email:', emailErr?.message || emailErr);
+              }
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.error('❌ Error while preparing/sending Wali participation email:', e?.message || e);
+    }
+
     // Clear notifications
     try {
       const Notification = require('./models/Notification');
@@ -637,7 +691,6 @@ app.use('/api/feed', feedRoutes);
 app.use('/api/monthly-usage', monthlyUsageRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/getstream-video-call', getstreamVideoCallRoutes);
-app.use('/api/video-recording', videoRecordingRoutes);
 app.use('/api/video-call-time', videoCallTimeRoutes);
 
 // Set user as online (called when user makes any API request)

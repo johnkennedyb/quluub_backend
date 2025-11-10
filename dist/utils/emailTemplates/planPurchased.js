@@ -3,7 +3,7 @@ const emailFooterWithIcons = require('./components/emailFooterWithIcons');
 
 const planPurchasedEmail = (recipientName) => {
   const subject = 'Welcome to Quluub Premium!';
-  const title = 'Welcome to Premium!';
+  const title = 'Quluub Premium Active';
   const html = `
     <!DOCTYPE html>
     <html lang="en">
@@ -32,11 +32,11 @@ const planPurchasedEmail = (recipientName) => {
                 <td style="padding:30px;">
                   <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">Salaamun alaekum ${recipientName},</p>
                   <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">
-                    Congratulations on purchasing the Premium Plan! You can now send up to 5 connection requests per month, enjoy an ad-free experience, and make video calls with your matched connections.
+                    Congratulations on purchasing the Premium Plan! You can now send up to 5 connection requests per month, 5 minutes of video calling and enjoy an ad-free experience.
                   </p>
-                  <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">
-                    Thank you for upgrading!
-                  </p>
+                  <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">Thank you for upgrading!</p>
+                  <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">This plan expires in 30 days. May Allaah grant you success in this journey.</p>
+                  <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">JazaakumuLlahu khairan,<br/>The Quluub Team<br/><span style="opacity:0.9;">Where every heart finds a home.</span></p>
                 </td>
               </tr>
             </table>

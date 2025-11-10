@@ -30,8 +30,7 @@ const validateEmail = (recipientName, validationLink, verificationCode) => {
             <table class="container" width="600" border="0" cellspacing="0" cellpadding="0" style="max-width:600px; background-color:#ffffff;">
               <tr>
                 <td style="padding:30px; font-family: Arial, sans-serif; font-size:16px; color:#333;">
-                  <p>Dear ${recipientName},</p>
-                  <p>Salaamun alaekum</p>
+                  <p>Salaamun alaekum ${recipientName},</p>
                   <p>Thank you for registering with Quluub! To complete your registration and start your journey to finding your perfect match, please use the verification code below:</p>
                   
                   <table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin: 30px 0; text-align: center;">
@@ -54,8 +53,10 @@ const validateEmail = (recipientName, validationLink, verificationCode) => {
                       </td>
                     </tr>
                   </table>
-
-                  <p>Barakallahu feekum,<br><strong style="color: #14b8a6;">The Quluub Team</strong></p>
+                  <p>May Allaah grant you success in this journey.</p>
+                  <p>JazaakumuLlahu khairan,<br/>
+                  The Quluub Team<br/>
+                  <span style="opacity:0.9;">Where every heart finds a home.</span></p>
                 </td>
               </tr>
             </table>
