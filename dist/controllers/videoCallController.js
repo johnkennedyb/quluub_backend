@@ -216,12 +216,21 @@ exports.initiateCall = asyncHandler(async (req, res) => {
     let emailSent = false;
     if (recipient.parentGuardianEmail) {
       try {
+        const callDetails = {
+          callerName: `${caller.fname} ${caller.lname}`,
+          recipientName: `${recipient.fname} ${recipient.lname}`,
+          timestamp: new Date().toISOString(),
+          callId: roomId,
+          recordingUrl: null
+        };
+        const reportLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/wali/video-call-report?caller=${callerId}&recipient=${recipientId}&callId=${roomId}`;
         await sendVideoCallNotificationEmail(
           recipient.parentGuardianEmail,
           recipient.parentGuardianName || 'Guardian',
           `${recipient.fname} ${recipient.lname}`,
           `${caller.fname} ${caller.lname}`,
-          jitsiRoomUrl
+          callDetails,
+          reportLink
         );
         emailSent = true;
         console.log('Email notification sent to parent/guardian');

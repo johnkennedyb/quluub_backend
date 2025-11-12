@@ -3,6 +3,7 @@ const User = require('../models/User');
 const Notification = require('../models/Notification');
 const VideoCallTime = require('../models/VideoCallTime');
 const { StreamClient } = require('@stream-io/node-sdk');
+const { sendVideoCallNotificationEmail } = require('../utils/emailService');
 
 // GetStream.io credentials for professional video sessions
 const GETSTREAM_API_KEY = 'zkhmtk6srdk3';
@@ -297,6 +298,73 @@ const createProfessionalSession = asyncHandler(async (req, res) => {
       });
 
       console.log(`🌟 Professional session invitation sent to participant: ${participantId}`);
+    }
+
+    try {
+      const [hostUser, participantUser] = await Promise.all([
+        User.findById(hostId),
+        User.findById(participantId)
+      ]);
+
+      if (hostUser && participantUser) {
+        let femaleUser = null;
+        let maleUser = null;
+        if (hostUser.gender === 'female') {
+          femaleUser = hostUser;
+          maleUser = participantUser;
+        } else if (participantUser.gender === 'female') {
+          femaleUser = participantUser;
+          maleUser = hostUser;
+        }
+
+        if (femaleUser) {
+          let waliEmail = null;
+          let waliName = 'Wali';
+          if (femaleUser.waliDetails) {
+            try {
+              const wd = JSON.parse(femaleUser.waliDetails);
+              waliEmail = wd.email || wd.waliEmail || null;
+              waliName = wd.name || wd.waliName || 'Wali';
+            } catch (e) {
+              console.warn('⚠️ Failed to parse waliDetails JSON:', e?.message || e);
+            }
+          }
+          if (!waliEmail && femaleUser.parentGuardianEmail) {
+            waliEmail = femaleUser.parentGuardianEmail;
+            waliName = femaleUser.parentGuardianName || 'Wali';
+          }
+
+          if (waliEmail) {
+            const callDetails = {
+              callerName: `${hostUser.fname || hostUser.firstName || hostUser.username || 'User'} ${hostUser.lname || hostUser.lastName || ''}`.trim(),
+              recipientName: `${participantUser.fname || participantUser.firstName || participantUser.username || 'User'} ${participantUser.lname || participantUser.lastName || ''}`.trim(),
+              timestamp: new Date().toISOString(),
+              callId: sessionId,
+              recordingUrl: null
+            };
+            const reportLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/wali/video-call-report?caller=${hostId}&recipient=${participantId}&callId=${sessionId}`;
+
+            const wardName = `${femaleUser.fname || femaleUser.firstName || femaleUser.username || 'Ward'} ${femaleUser.lname || femaleUser.lastName || ''}`.trim();
+            const brotherName = `${maleUser.fname || maleUser.firstName || maleUser.username || 'User'} ${maleUser.lname || maleUser.lastName || ''}`.trim();
+
+            await sendVideoCallNotificationEmail(
+              waliEmail,
+              waliName,
+              wardName,
+              brotherName,
+              callDetails,
+              reportLink
+            );
+            console.log('📧 Wali email notification sent for professional session');
+          } else {
+            console.log('ℹ️ No wali email available; skipping Wali notification');
+          }
+        } else {
+          console.log('ℹ️ No female participant identified; Wali notification not required');
+        }
+      }
+    } catch (emailErr) {
+      console.error('❌ Error sending Wali notification for professional session:', emailErr);
     }
 
     res.status(201).json({
