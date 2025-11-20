@@ -104,12 +104,23 @@ exports.getUserProfile = async (req, res) => {
       });
     }
 
-    // Set cache headers for better performance
-    res.set({
-      'Cache-Control': isOwnProfile ? 'private, max-age=300' : 'private, max-age=600',
-      'ETag': `"${user._id}-${user.updatedAt || user.createdAt}"`,
-      'X-Cache': 'MISS'
-    });
+    // Set cache headers
+    // For own profile, disable caching completely to ensure immediate consistency after updates
+    // For public profiles, allow short-lived private caching for performance
+    if (isOwnProfile) {
+      res.set({
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0',
+        'X-Cache': 'MISS'
+      });
+    } else {
+      res.set({
+        'Cache-Control': 'private, max-age=600',
+        'ETag': `"${user._id}-${user.updatedAt || user.createdAt}"`,
+        'X-Cache': 'MISS'
+      });
+    }
 
     res.json(user);
   } catch (error) {
