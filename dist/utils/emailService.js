@@ -26,7 +26,7 @@ console.log('Loading Maileroo API email configuration...');
 // Email settings
 let emailSettings = {
   fromName: process.env.FROM_NAME || 'Quluub Team',
-  fromEmail: process.env.FROM_EMAIL || 'mail@quluub.com',
+  fromEmail: process.env.FROM_EMAIL || 'mail@match.quluub.com',
   replyTo: process.env.REPLY_TO || 'support@quluub.com'
 };
 
