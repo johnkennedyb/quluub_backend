@@ -408,6 +408,21 @@ io.on('connection', (socket) => {
     const { recipientId, sessionId, callerId, callerName, callId } = data;
     console.log('📞 GetStream video call invitation:', { recipientId, sessionId, callerId, callerName, callId });
 
+    try {
+      const VideoCallTime = require('./models/VideoCallTime');
+      const record = await VideoCallTime.getOrCreatePairRecord(callerId, recipientId);
+      const canCall = record.canMakeVideoCall();
+      if (!canCall) {
+        const callerSocketId = onlineUsers.get(callerId?.toString());
+        const payload = { sessionId, recipientId, reason: 'limit_exceeded', timestamp: new Date().toISOString() };
+        if (callerSocketId) io.to(callerSocketId).emit('getstream_call_rejected', payload);
+        io.to(callerId?.toString()).emit('getstream_call_rejected', payload);
+        return;
+      }
+    } catch (e) {
+      console.warn('VideoCallTime check failed in invitation handler:', e?.message || e);
+    }
+
     // Send to recipient's socket directly
     const recipientSocketId = onlineUsers.get(recipientId?.toString());
     if (recipientSocketId) {
@@ -529,34 +544,7 @@ io.on('connection', (socket) => {
 
     console.log('✅ GetStream call end notifications sent to both participants');
 
-    // Track call duration if provided
-    if (duration && callerId && recipientId) {
-      try {
-        const VideoCallTime = require('./models/VideoCallTime');
-        const [user1, user2] = callerId.toString() < recipientId.toString()
-          ? [callerId, recipientId]
-          : [recipientId, callerId];
-
-        await VideoCallTime.findOneAndUpdate(
-          { user1, user2 },
-          {
-            $inc: { totalTimeSpent: duration },
-            $push: {
-              callSessions: {
-                startTime: new Date(Date.now() - duration * 1000),
-                endTime: new Date(),
-                duration,
-                callType: 'getstream'
-              }
-            },
-            updatedAt: new Date()
-          },
-          { upsert: true, new: true, setDefaultsOnInsert: true }
-        );
-        console.log('✅ GetStream call duration tracked:', { callerId, recipientId, duration });
-      } catch (error) {
-        console.error('❌ Error tracking GetStream call duration:', error);
-      }
+    if (false && duration && callerId && recipientId) {
     }
 
     try {

@@ -703,7 +703,7 @@ const sendVideoCallInvitation = async (req, res) => {
       `1. Click the link above\n` +
       `2. Allow camera and microphone access\n` +
       `3. Start your conversation!\n\n` +
-      `⏰ **Call initiated:** ${new Date().toLocaleString()}`;
+      `⏰ **Call initiated:** ${new Date().toISOString()}`;
     
     const chat = new Chat({
       senderId: userInfo._id,

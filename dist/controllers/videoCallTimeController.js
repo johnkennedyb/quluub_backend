@@ -132,12 +132,19 @@ exports.startVideoCallSession = async (req, res) => {
 exports.endVideoCallSession = async (req, res) => {
   try {
     const { userId1, userId2, sessionId } = req.body;
-    const endTime = req.body.endTime ? new Date(req.body.endTime) : new Date();
+    // Always use server time to prevent client clock or timezone inaccuracies
+    const endTime = new Date();
     
     const record = await VideoCallTime.getOrCreatePairRecord(userId1, userId2);
     
     const session = record.endCallSession(sessionId, endTime);
     await record.save();
+    try {
+      const MonthlyCallUsage = require('../models/MonthlyCallUsage');
+      await MonthlyCallUsage.addCallDuration(userId1, userId2, session.duration, null, userId1);
+    } catch (e) {
+      console.error('Error updating monthly usage after call end:', e);
+    }
     
     res.json({
       success: true,
