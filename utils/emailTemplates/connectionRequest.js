@@ -4,6 +4,7 @@ const emailFooterWithIcons = require('./components/emailFooterWithIcons');
 const connectionRequestEmail = (recipientName, requesterUsername) => {
   const subject = "You've Received a Connection Request on Quluub!";
   const title = 'New Connection Request';
+  const loginUrl = `${process.env.FRONTEND_URL || 'https://match.quluub.com'}/auth`;
   const html = `
     <!DOCTYPE html>
     <html lang="en">
@@ -32,7 +33,7 @@ const connectionRequestEmail = (recipientName, requesterUsername) => {
                 <td style="padding:30px;">
                   <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">Salaamun alaekum ${recipientName},</p>
                   <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">
-                    You've received a new connection request from <strong>${requesterUsername}</strong> on Quluub! Log in now to view and respond.
+                    You've received a new connection request from <strong>${requesterUsername}</strong> on Quluub! <a href="${loginUrl}" style="color:#075e54; text-decoration: underline;">Log in</a> now to view and respond.
                   </p>
                   <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">May Allaah grant you success in this journey.</p>
                   <p style="font-family: Arial, sans-serif; font-size:16px; color:#333;">JazaakumuLlahu khairan,<br/>The Quluub Team<br/><span style="opacity:0.9;">Where every heart finds a home.</span></p>
