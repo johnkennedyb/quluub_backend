@@ -84,6 +84,15 @@ videoCallTimeSchema.statics.getOrCreatePairRecord = async function(userId1, user
     await record.save();
   }
   
+  const targetMax = 330;
+  if (!record.maxAllowedTime || record.maxAllowedTime < targetMax) {
+    record.maxAllowedTime = targetMax;
+    if (record.limitExceeded && record.totalTimeSpent < targetMax) {
+      record.limitExceeded = false;
+    }
+    await record.save();
+  }
+  
   return record;
 };
 
