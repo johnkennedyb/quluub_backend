@@ -494,8 +494,13 @@ exports.getBrowseUsers = async (req, res) => {
       status: { $in: ['active', 'pending', 'NEW'] }, // Include active, pending, and new users, exclude banned/suspended
     };
     
-    // Always filter by opposite gender
-    filters.gender = currentUser.gender === 'male' ? 'female' : 'male';
+    // Always filter by opposite gender with safe fallback
+    const desiredGender = currentUser.gender === 'male' 
+      ? 'female' 
+      : currentUser.gender === 'female' 
+        ? 'male' 
+        : 'female';
+    filters.gender = desiredGender;
     
     // Additional filters from query
     if (req.query.country) {
@@ -654,9 +659,14 @@ exports.getBrowseUsers = async (req, res) => {
       console.log('❌ No users returned - investigating...');
       
       // Let's check if there are any users at all with basic filters
+      const basicOpposite = currentUser.gender === 'male' 
+        ? 'female' 
+        : currentUser.gender === 'female' 
+          ? 'male' 
+          : 'female';
       const basicCount = await User.countDocuments({
         _id: { $ne: req.user._id },
-        gender: currentUser.gender === 'male' ? 'female' : 'male'
+        gender: basicOpposite
       });
       console.log(`🔍 Users with basic filters (opposite gender): ${basicCount}`);
       
@@ -665,7 +675,7 @@ exports.getBrowseUsers = async (req, res) => {
         {
           $match: {
             _id: { $ne: req.user._id },
-            gender: currentUser.gender === 'male' ? 'female' : 'male'
+            gender: basicOpposite
           }
         },
         {

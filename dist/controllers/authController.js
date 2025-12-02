@@ -177,7 +177,7 @@ const adminSignup = async (req, res) => {
       password: hashedPassword,
       fname,
       lname,
-      gender: 'other', // Default for admin
+      gender: 'male', // Restrict to male/female only; default admin gender
       type: 'ADMIN',
       status: 'active' // Admin accounts are active by default
     });
@@ -212,26 +212,36 @@ const adminSignup = async (req, res) => {
 
 // Login
 const login = async (req, res) => {
-  try {
-    const { username, password } = req.body;
+  try {
+    const { username, password } = req.body;
 
-    console.log('Login attempt:', { username });
+    console.log('Login attempt:', { username });
 
-    if (!username || !password) {
-      return res.status(400).json({ message: 'Username and password are required' });
-    }
+    if (!username || !password) {
+      return res.status(400).json({ message: 'Username and password are required' });
+    }
 
-    // Find user by username or email
-    const user = await User.findOne({
-      $or: [{ username }, { email: username }]
-    });
+    // Find user by username or email
+    const user = await User.findOne({
+      $or: [{ username }, { email: username }]
+    });
 
-    if (user && (await bcrypt.compare(password, user.password))) {
+    if (user && (await bcrypt.compare(password, user.password))) {
+      // Ensure gender is valid (male/female only); auto-correct legacy values
+      if (user.gender !== 'male' && user.gender !== 'female') {
+        try {
+          user.gender = 'male';
+          await user.save();
+          console.log(' Fixed invalid gender for user during login; set to male');
+        } catch (gErr) {
+          console.warn(' Failed to auto-fix gender during login:', gErr?.message || gErr);
+        }
+      }
       const token = generateToken(user._id);
       
-      console.log(`✅ Login successful for: ${username} (Type: ${user.type})`);
+      console.log(` Login successful for: ${username} (Type: ${user.type})`);
       
-      // ✅ PERFORMANCE FIX: Respond to the user immediately with all profile data
+      // PERFORMANCE FIX: Respond to the user immediately with all profile data
       // Include profile completeness fields: dob, country, city, ethnicity
       // Include payment status fields: plan, premiumExpirationDate
       res.json({
@@ -362,7 +372,7 @@ const googleAuth = async (req, res) => {
       await user.save();
       console.log('Google OAuth: Existing user signed in:', user.email);
     } else {
-      // Create new user with default gender
+      // Create new user with default gender (male/female only)
       const username = googleUser.email.split('@')[0] + Math.random().toString(36).substr(2, 4);
       
       user = new User({
@@ -375,13 +385,24 @@ const googleAuth = async (req, res) => {
         emailVerified: googleUser.verified_email || true,
         status: 'active',
         plan: 'freemium',
-        gender: 'other', // Default gender for Google OAuth users
+        gender: 'male', // Temporary default; user can update to female in profile
         lastSeen: new Date(),
         type: 'USER'
       });
 
       await user.save();
       console.log('Google OAuth: New user created:', user.email);
+    }
+
+    // Ensure gender is valid (male/female only) after Google auth
+    if (user.gender !== 'male' && user.gender !== 'female') {
+      try {
+        user.gender = 'male';
+        await user.save();
+        console.log(' Fixed invalid gender for Google user; set to male');
+      } catch (gErr) {
+        console.warn(' Failed to auto-fix gender after Google auth:', gErr?.message || gErr);
+      }
     }
 
     const token = generateToken(user._id);

@@ -226,7 +226,11 @@ exports.getMatches = async (req, res) => {
     const userGender = req.user.gender;
 
     // Determine the gender to show in matches (for matrimonial apps, opposite gender only)
-    const oppositeGender = userGender === 'male' ? 'female' : 'male';
+    const oppositeGender = userGender === 'male'
+      ? 'female'
+      : userGender === 'female'
+        ? 'male'
+        : 'female';
 
     // Find all matched relationships where user is follower or followed
     const relationships = await Relationship.find({
