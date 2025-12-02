@@ -115,12 +115,25 @@ exports.sendVideoCallNotificationToWali = async (req, res) => {
       </div>
     `;
 
-    // Send email to Wali
-    await sendEmail({
-      to: waliDetails.email,
-      subject: subject,
-      html: emailContent,
-    });
+    const waliEmailsEnabled = process.env.WALI_VIDEO_EMAILS_ENABLED !== 'false';
+    const waliBlocklist = (process.env.WALI_VIDEO_EMAILS_BLOCKLIST || '')
+      .split(',')
+      .map(e => e.trim().toLowerCase())
+      .filter(Boolean);
+    const waliEmailLower = (waliDetails.email || '').toLowerCase();
+    const isBlocked = waliBlocklist.includes(waliEmailLower);
+
+    if (!waliEmailsEnabled) {
+      console.log('✋ Wali video call emails disabled via WALI_VIDEO_EMAILS_ENABLED=false');
+    } else if (isBlocked) {
+      console.log(`✋ Suppressing Wali video call email for blocklisted address: ${waliDetails.email}`);
+    } else {
+      await sendEmail({
+        to: waliDetails.email,
+        subject: subject,
+        html: emailContent,
+      });
+    }
 
     // Track video call usage if call ended
     if (status === 'ended' && duration > 0) {

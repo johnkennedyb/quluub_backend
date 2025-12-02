@@ -32,7 +32,7 @@ const { createIndexes } = require('./config/indexes');
 const { startScheduler } = require('./utils/emailScheduler');
 
 // Load environment variables from the env file
-dotenv.config({ path: './env (1)' });
+dotenv.config();
 
 connectDB();
 
@@ -586,11 +586,24 @@ io.on('connection', (socket) => {
               const brotherName = otherUser ? `${otherUser.fname || ''} ${otherUser.lname || ''}`.trim() : 'A member';
 
               try {
-                await sendEmail({
-                  ...waliVideoCallParticipationEmail(waliFirstName, wardName, brotherName, 'mailto:support@quluub.com'),
-                  to: waliEmail
-                });
-                console.log('✅ Wali participation email sent for session:', sessionId, 'to:', waliEmail);
+                const waliEmailsEnabled = process.env.WALI_VIDEO_EMAILS_ENABLED !== 'false';
+                const blocklist = (process.env.WALI_VIDEO_EMAILS_BLOCKLIST || '')
+                  .split(',')
+                  .map(e => e.trim().toLowerCase())
+                  .filter(Boolean);
+                const isBlocked = blocklist.includes(waliEmail.toLowerCase());
+
+                if (!waliEmailsEnabled) {
+                  console.log('✋ Wali participation emails disabled via WALI_VIDEO_EMAILS_ENABLED=false');
+                } else if (isBlocked) {
+                  console.log(`✋ Suppressing Wali participation email for blocklisted address: ${waliEmail}`);
+                } else {
+                  await sendEmail({
+                    ...waliVideoCallParticipationEmail(waliFirstName, wardName, brotherName, 'mailto:support@quluub.com'),
+                    to: waliEmail
+                  });
+                  console.log('✅ Wali participation email sent for session:', sessionId, 'to:', waliEmail);
+                }
               } catch (emailErr) {
                 console.error('❌ Failed to send Wali participation email:', emailErr?.message || emailErr);
               }
