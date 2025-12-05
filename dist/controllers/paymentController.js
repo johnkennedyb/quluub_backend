@@ -4,6 +4,11 @@ const crypto = require('crypto');
 const User = require('../models/User');
 const { sendPlanPurchasedEmail, sendPlanExpiringEmail, sendPlanExpiredEmail } = require('../utils/emailService');
 
+// Robust frontend URL fallback for redirects (Stripe/Paystack)
+const FRONTEND_URL = process.env.FRONTEND_URL 
+  || process.env.CLIENT_URL 
+  || 'https://match.quluub.com';
+
 // @desc    Create a Stripe checkout session
 // @route   POST /api/payments/create-checkout-session
 // @access  Private
@@ -13,7 +18,13 @@ const createCheckoutSession = async (req, res) => {
 
   try {
     if (!stripe) {
+      console.error('Stripe not configured: missing STRIPE_SECRET_API_KEY');
       return res.status(500).json({ message: 'Stripe not configured' });
+    }
+
+    const parsedAmount = Number(amount);
+    if (!parsedAmount || isNaN(parsedAmount) || parsedAmount <= 0) {
+      return res.status(400).json({ message: 'Invalid amount' });
     }
 
     const user = await User.findById(userId);
@@ -27,11 +38,11 @@ const createCheckoutSession = async (req, res) => {
       line_items: [
         {
           price_data: {
-            currency: currency,
+            currency: (currency || 'gbp').toLowerCase(),
             product_data: {
               name: `${plan.charAt(0).toUpperCase() + plan.slice(1)} Plan`,
             },
-            unit_amount: amount * 100, // Amount in smallest currency unit (e.g., pence)
+            unit_amount: Math.round(parsedAmount * 100), // pence/cents
             recurring: {
               interval: 'month',
             },
@@ -46,13 +57,13 @@ const createCheckoutSession = async (req, res) => {
         userId: userId,
         plan: plan || 'premium', // Default to premium if not provided
       },
-      success_url: `${process.env.CLIENT_URL}/settings?payment_success=true&provider=stripe`,
-      cancel_url: `${process.env.CLIENT_URL}/settings?payment_canceled=true`,
+      success_url: `${FRONTEND_URL}/settings?payment_success=true&provider=stripe`,
+      cancel_url: `${FRONTEND_URL}/settings?payment_canceled=true`,
     });
 
     res.json({ id: session.id, url: session.url });
   } catch (error) {
-    console.error('Error creating Stripe session:', error);
+    console.error('Error creating Stripe session:', error?.message || error);
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -230,11 +241,11 @@ const createPaystackPayment = async (req, res) => {
         email: user.email,
         amount: amount,
         reference: reference,
-        callback_url: `${process.env.CLIENT_URL}/payment-success?payment_success=true&provider=paystack&trxref=${reference}`,
+        callback_url: `${FRONTEND_URL}/payment-success?payment_success=true&provider=paystack&trxref=${reference}`,
         metadata: {
           user_id: userId,
           plan: plan,
-          cancel_action: `${process.env.CLIENT_URL}/settings?payment_canceled=true`
+          cancel_action: `${FRONTEND_URL}/settings?payment_canceled=true`
         },
         channels: ['card', 'bank', 'ussd', 'qr', 'mobile_money', 'bank_transfer'],
       },
