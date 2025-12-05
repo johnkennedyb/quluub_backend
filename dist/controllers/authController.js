@@ -5,7 +5,7 @@ const jwt = require('jsonwebtoken');
 const generateToken = require('../utils/generateToken');
 const crypto = require('crypto');
 const axios = require('axios');
-const { sendValidationEmail, sendWelcomeEmail } = require('../utils/emailService');
+const { sendValidationEmail, sendWelcomeEmail, sendPlanExpiredEmail } = require('../utils/emailService');
 
 // Regular signup
 const signup = async (req, res) => {
@@ -227,6 +227,18 @@ const login = async (req, res) => {
     });
 
     if (user && (await bcrypt.compare(password, user.password))) {
+      try {
+        if (
+          user.plan === 'premium' &&
+          user.premiumExpirationDate &&
+          new Date(user.premiumExpirationDate) < new Date()
+        ) {
+          user.plan = 'freemium';
+          user.premiumExpirationDate = null;
+          await user.save();
+          try { sendPlanExpiredEmail(user.email, user.fname); } catch (e) {}
+        }
+      } catch (e) {}
       // Ensure gender is valid (male/female only); auto-correct legacy values
       if (user.gender !== 'male' && user.gender !== 'female') {
         try {
@@ -404,6 +416,19 @@ const googleAuth = async (req, res) => {
         console.warn(' Failed to auto-fix gender after Google auth:', gErr?.message || gErr);
       }
     }
+    // Enforce premium expiration
+    try {
+      if (
+        user.plan === 'premium' &&
+        user.premiumExpirationDate &&
+        new Date(user.premiumExpirationDate) < new Date()
+      ) {
+        user.plan = 'freemium';
+        user.premiumExpirationDate = null;
+        await user.save();
+        try { sendPlanExpiredEmail(user.email, user.fname); } catch (e) {}
+      }
+    } catch (e) {}
 
     const token = generateToken(user._id);
 

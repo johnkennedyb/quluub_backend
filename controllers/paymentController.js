@@ -57,14 +57,15 @@ const createCheckoutSession = async (req, res) => {
         userId: userId,
         plan: plan || 'premium', // Default to premium if not provided
       },
-      success_url: `${FRONTEND_URL}/settings?payment_success=true&provider=stripe`,
+      success_url: `${FRONTEND_URL}/settings?payment_success=true&provider=stripe&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${FRONTEND_URL}/settings?payment_canceled=true`,
     });
 
     res.json({ id: session.id, url: session.url });
   } catch (error) {
     console.error('Error creating Stripe session:', error?.message || error);
-    res.status(500).json({ message: 'Server error' });
+    const msg = (error && (error.raw?.message || error.message)) || 'Server error';
+    return res.status(500).json({ message: msg });
   }
 };
 
@@ -86,7 +87,12 @@ const handleStripeWebhook = async (req, res) => {
     // Check if webhook secret is configured
     if (!process.env.STRIPE_WEBHOOK_SECRET || process.env.STRIPE_WEBHOOK_SECRET === 'whsec_YOUR_STRIPE_WEBHOOK_SECRET_HERE') {
       console.warn('Stripe webhook secret not configured, skipping signature verification');
-      event = req.body;
+      try {
+        event = Buffer.isBuffer(req.body) ? JSON.parse(req.body.toString()) : req.body;
+      } catch (parseErr) {
+        console.error('Failed to parse webhook JSON when secret is not configured:', parseErr?.message || parseErr);
+        return res.status(400).send('Invalid JSON payload');
+      }
     } else {
       event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
     }
@@ -395,6 +401,87 @@ const verifyPaymentAndUpgrade = async (req, res) => {
   }
 };
 
+// Manual Stripe session verification (fallback without webhook)
+const verifyStripeSession = async (req, res) => {
+  try {
+    if (!stripe) {
+      return res.status(500).json({ message: 'Stripe not configured' });
+    }
+    const userId = req.user.id;
+    const { sessionId } = req.body || {};
+    if (!sessionId) {
+      return res.status(400).json({ message: 'Missing sessionId' });
+    }
+
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    if (!session) {
+      return res.status(404).json({ message: 'Session not found' });
+    }
+
+    const refUserId = session.client_reference_id || (session.metadata && session.metadata.userId);
+    if (refUserId && refUserId.toString() !== userId.toString()) {
+      return res.status(403).json({ message: 'Session does not belong to user' });
+    }
+
+    if ((session.payment_status !== 'paid') && (session.status !== 'complete')) {
+      return res.status(400).json({ message: 'Session not paid' });
+    }
+
+    const subscriptionId = session.subscription;
+    let currentPeriodEnd = null;
+    if (subscriptionId) {
+      const sub = await stripe.subscriptions.retrieve(typeof subscriptionId === 'string' ? subscriptionId : subscriptionId.id);
+      if (sub && sub.current_period_end) {
+        currentPeriodEnd = new Date(sub.current_period_end * 1000);
+      }
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    user.plan = 'premium';
+    if (currentPeriodEnd) {
+      user.premiumExpirationDate = currentPeriodEnd;
+    }
+
+    if (user.subscription) {
+      user.subscription.status = 'active';
+      user.subscription.plan = (session.metadata && session.metadata.plan) || 'premium';
+      if (subscriptionId) {
+        user.subscription.stripeSubscriptionId = typeof subscriptionId === 'string' ? subscriptionId : subscriptionId.id;
+      }
+      user.subscription.stripeCustomerId = session.customer;
+      if (currentPeriodEnd) {
+        user.subscription.currentPeriodEnd = currentPeriodEnd;
+      }
+    }
+
+    await user.save();
+
+    try {
+      const Payment = require('../models/Payment');
+      const paymentRecord = new Payment({
+        user: userId,
+        amount: (session.amount_total || 0) / 100,
+        currency: (session.currency || 'gbp').toUpperCase(),
+        status: 'succeeded',
+        transactionId: session.id,
+        paymentGateway: 'Stripe',
+        plan: (session.metadata && session.metadata.plan) || 'premium'
+      });
+      await paymentRecord.save();
+    } catch (e) {
+    }
+
+    res.json({ success: true, plan: user.plan, premiumExpirationDate: user.premiumExpirationDate });
+  } catch (error) {
+    console.error('Error verifying Stripe session:', error?.message || error);
+    res.status(500).json({ message: 'Server error' });
+  }
+};
+
 module.exports = { 
   createCheckoutSession, 
   handleStripeWebhook, 
@@ -402,5 +489,6 @@ module.exports = {
   handlePaystackWebhook,
   getAllPayments,
   processRefund,
-  verifyPaymentAndUpgrade
+  verifyPaymentAndUpgrade,
+  verifyStripeSession
 };

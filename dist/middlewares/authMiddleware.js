@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const { sendPlanExpiredEmail } = require('../utils/emailService');
 
 const protect = async (req, res, next) => {
   let token;
@@ -17,6 +18,19 @@ const protect = async (req, res, next) => {
 
       if (!req.user) {
         return res.status(401).json({ message: 'Not authorized, user not found' });
+      }
+
+      if (
+        req.user.plan === 'premium' &&
+        req.user.premiumExpirationDate &&
+        new Date(req.user.premiumExpirationDate) < new Date()
+      ) {
+        req.user.plan = 'freemium';
+        req.user.premiumExpirationDate = null;
+        try {
+          await req.user.save();
+          try { sendPlanExpiredEmail(req.user.email, req.user.fname); } catch (e) {}
+        } catch (e) {}
       }
 
       // Update user's last seen timestamp on every authenticated API request (fire-and-forget)

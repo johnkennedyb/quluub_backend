@@ -8,7 +8,8 @@ const {
   sendProfileViewEmail,
   sendPendingRequestsEmail,
   sendEncourageUnhideEmail,
-  sendSuggestedAccountsEmail
+  sendSuggestedAccountsEmail,
+  sendPlanExpiredEmail
 } = require('./emailService');
 
 const startScheduler = () => {
@@ -234,6 +235,34 @@ const startScheduler = () => {
       }
     } catch (error) {
       console.error('Error in encourage unhide profile job:', error);
+    }
+  });
+
+  // 7. Premium Expiry Enforcement (runs every 30 minutes)
+  cron.schedule('*/30 * * * *', async () => {
+    try {
+      const now = new Date();
+      const expiredUsers = await User.find({
+        plan: 'premium',
+        premiumExpirationDate: { $ne: null, $lte: now }
+      }).select('_id email fname plan premiumExpirationDate').limit(1000);
+
+      if (!expiredUsers.length) return;
+
+      for (const u of expiredUsers) {
+        try {
+          await User.findByIdAndUpdate(u._id, {
+            plan: 'freemium',
+            premiumExpirationDate: null
+          });
+          try { await sendPlanExpiredEmail(u.email, u.fname); } catch (e) {}
+        } catch (e) {
+          console.error('Error downgrading expired premium user:', u._id?.toString(), e?.message || e);
+        }
+      }
+      console.log(`Premium expiry job: downgraded ${expiredUsers.length} user(s).`);
+    } catch (e) {
+      console.error('Error in premium expiry enforcement job:', e);
     }
   });
 };
