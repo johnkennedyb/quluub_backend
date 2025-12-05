@@ -254,8 +254,8 @@ exports.updateUserProfile = async (req, res) => {
     // Update fields - COMPREHENSIVE LIST including all ProfileEditSections fields
     const updatableFields = [
       // Basic Info
-      'fname', 'lname', 'kunya', 'dob', 'maritalStatus', 'noOfChildren', 
-      'summary', 'workEducation', 'profile_pic', 'hidden',
+      'username', 'fname', 'lname', 'kunya', 'dob', 'maritalStatus', 'noOfChildren', 
+      'summary', 'workEducation', 'profile_pic', 'hidden', 'gender',
       
       // Location and Ethnicity
       'nationality', 'country', 'state', 'city', 'region', 'ethnicity',

@@ -175,26 +175,12 @@ const sendWaliViewChatEmailWithChatLink = (email, waliName, wardName, brotherNam
 const sendWaliViewChatEmailWithAttachments = (email, waliName, wardName, brotherName, chatLink, attachments = []) => 
   sendEmailWithAttachments(email, waliViewChatEmailTemplate, attachments, waliName, wardName, brotherName, chatLink);
 const sendVideoCallNotificationEmail = (parentEmail, waliName, wardName, brotherName, callDetails, reportLink) => {
-  if (!WALI_VIDEO_REPORT_EMAILS_ENABLED) {
-    console.log('✋ Video Call Report emails are disabled via WALI_VIDEO_REPORT_EMAILS_ENABLED=false');
-    return Promise.resolve(true);
-  }
-  if (isWaliReportEmailBlocked(parentEmail)) {
-    console.log(`✋ Video Call Report suppressed for blocklisted email: ${parentEmail}`);
-    return Promise.resolve(true);
-  }
-  return sendEmail({ ...videoCallNotificationEmailTemplate(waliName, wardName, brotherName, callDetails, reportLink), to: parentEmail });
+  console.log('✋ Video Call Report emails are permanently disabled by configuration. Skipping send.');
+  return Promise.resolve(true);
 };
 const sendVideoCallNotificationEmailWithAttachments = (parentEmail, waliName, wardName, brotherName, callDetails, reportLink, attachments = []) => {
-  if (!WALI_VIDEO_REPORT_EMAILS_ENABLED) {
-    console.log('✋ Video Call Report emails (with attachments) disabled via WALI_VIDEO_REPORT_EMAILS_ENABLED=false');
-    return Promise.resolve(true);
-  }
-  if (isWaliReportEmailBlocked(parentEmail)) {
-    console.log(`✋ Video Call Report (with attachments) suppressed for blocklisted email: ${parentEmail}`);
-    return Promise.resolve(true);
-  }
-  return sendEmailWithAttachments(parentEmail, videoCallNotificationEmailTemplate, attachments, waliName, wardName, brotherName, callDetails, reportLink);
+  console.log('✋ Video Call Report emails (with attachments) are permanently disabled by configuration. Skipping send.');
+  return Promise.resolve(true);
 };
 
 const sendValidationEmail = (email, recipientName, validationToken) => {
