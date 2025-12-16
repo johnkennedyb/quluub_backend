@@ -202,12 +202,29 @@ const handleStripeWebhook = async (req, res) => {
 const getAllPayments = async (req, res) => {
   try {
     const Payment = require('../models/Payment');
-    const payments = await Payment.find({})
-      .populate('user', 'fname lname email')
-      .sort({ createdAt: -1 })
-      .limit(100); // Limit to last 100 payments
-    
-    res.json(payments);
+    const page = parseInt(req.query?.page || 1);
+    const limit = parseInt(req.query?.limit || 100);
+    const skip = (page - 1) * limit;
+
+    const [payments, total] = await Promise.all([
+      Payment.find({})
+        .populate('user', 'fname lname username email')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit),
+      Payment.countDocuments({})
+    ]);
+
+    res.json({
+      payments,
+      pagination: {
+        total,
+        currentPage: page,
+        totalPages: Math.ceil(total / limit),
+        hasNextPage: page * limit < total,
+        hasPrevPage: page > 1,
+      },
+    });
   } catch (error) {
     console.error('Error fetching payments:', error);
     res.status(500).json({ message: 'Server error' });
@@ -222,7 +239,7 @@ const processRefund = async (req, res) => {
     // This is a placeholder. In a real application, you would integrate with Stripe's refund API.
     const { id } = req.params;
     console.log(`Refunding payment ${id}`);
-    res.json({ message: `Refund for payment ${id} processed successfully.` });
+    res.json({ success: true, message: `Refund for payment ${id} processed successfully.` });
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
   }
@@ -276,7 +293,9 @@ const handlePaystackWebhook = async (req, res) => {
   console.log('Paystack webhook headers:', req.headers);
   
   const secret = process.env.PAYSTACK_SECRET_API_KEY;
-  const hash = crypto.createHmac('sha512', secret).update(JSON.stringify(req.body)).digest('hex');
+  // Prefer raw body if this route was mounted with express.raw(); fallback to JSON stringify
+  const rawPayload = Buffer.isBuffer(req.body) ? req.body.toString() : JSON.stringify(req.body);
+  const hash = crypto.createHmac('sha512', secret).update(rawPayload).digest('hex');
 
   if (hash !== req.headers['x-paystack-signature']) {
     console.error('Paystack webhook signature verification failed.');
@@ -285,7 +304,14 @@ const handlePaystackWebhook = async (req, res) => {
     return res.status(400).send('Webhook Error: Invalid signature');
   }
 
-  const event = req.body;
+  // Parse event from raw payload when present
+  let event;
+  try {
+    event = Buffer.isBuffer(req.body) ? JSON.parse(rawPayload) : req.body;
+  } catch (e) {
+    console.error('Failed to parse Paystack webhook payload:', e?.message || e);
+    return res.status(400).send('Invalid JSON payload');
+  }
   console.log('Processing Paystack event:', event.event);
 
   if (event.event === 'charge.success') {
@@ -352,6 +378,7 @@ const verifyPaymentAndUpgrade = async (req, res) => {
     }
 
     let paymentVerified = false;
+    let paystackTx = null;
 
     if (provider === 'paystack' && reference) {
       // Verify Paystack payment
@@ -367,6 +394,7 @@ const verifyPaymentAndUpgrade = async (req, res) => {
         
         if (response.data.status && response.data.data.status === 'success') {
           paymentVerified = true;
+          paystackTx = response.data.data;
           console.log(`Paystack payment verified for user ${userId}, reference: ${reference}`);
         }
       } catch (error) {
@@ -383,6 +411,26 @@ const verifyPaymentAndUpgrade = async (req, res) => {
       
       await user.save();
       console.log(`Manually upgraded user ${user.email} to premium after payment verification`);
+
+      // Create a payment record for Paystack manual verification (so it shows in Admin)
+      if (paystackTx) {
+        try {
+          const Payment = require('../models/Payment');
+          const paymentRecord = new Payment({
+            user: userId,
+            amount: (paystackTx.amount || 0) / 100, // kobo -> naira
+            currency: (paystackTx.currency || 'NGN').toUpperCase(),
+            status: 'succeeded',
+            transactionId: paystackTx.reference || reference,
+            paymentGateway: 'Paystack',
+            plan: (paystackTx.metadata && (paystackTx.metadata.plan || paystackTx.metadata?.plan?.toString())) || 'premium',
+          });
+          await paymentRecord.save();
+          console.log('Payment record created via manual verification (Paystack)');
+        } catch (paymentErr) {
+          console.error('Failed to create Payment record after manual verification:', paymentErr?.message || paymentErr);
+        }
+      }
       
       res.json({ 
         success: true, 

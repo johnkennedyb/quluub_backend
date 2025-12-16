@@ -20,6 +20,7 @@ const {
   getReportedProfiles,
   dismissReport,
   sendAdminPushNotification,
+  sendAdminEmail,
   getAdminPushNotifications,
   getPremiumUsers,
   getPaymentHistory,
@@ -69,7 +70,7 @@ router.post('/test-email', sendTestEmail);
 router.post('/push-notifications', sendAdminPushNotification);
 router.get('/email-metrics', getEmailMetrics);
 router.route('/email-config').get(getEmailConfig).post(saveEmailConfig);
-router.post('/send-email', (req, res) => res.json({ message: 'Email sent successfully' }));
+router.post('/send-email', sendAdminEmail);
 
 // Payments
 router.get('/payments', getAllPayments);

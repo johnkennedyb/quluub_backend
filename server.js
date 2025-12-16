@@ -61,6 +61,8 @@ app.use(cors(corsOptions));
 // Handle preflight requests explicitly
 app.options('*', cors(corsOptions));
 app.post('/api/payments/webhook', express.raw({ type: 'application/json' }), require('./controllers/paymentController').handleStripeWebhook);
+// Paystack webhook must also use raw body for HMAC verification
+app.post('/api/payments/paystack-webhook', express.raw({ type: 'application/json' }), require('./controllers/paymentController').handlePaystackWebhook);
 // Enable HTTP compression for faster API responses
 app.use(compression({ level: 6 }));
 app.use(express.json());

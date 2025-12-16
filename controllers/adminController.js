@@ -12,7 +12,7 @@ const Notification = require('../models/Notification');
 const UserActivityLog = require('../models/UserActivityLog');
 const WaliChat = require('../models/WaliChat');
 const crypto = require('crypto');
-const { sendBulkEmail: sendBulkEmailService, sendTestEmailService, updateEmailConfig, getEmailConfigService, getEmailMetricsService } = require('../utils/emailService');
+const { sendBulkEmail: sendBulkEmailService, sendTestEmailService, updateEmailConfig, getEmailConfigService, getEmailMetricsService, sendEmail: sendEmailService } = require('../utils/emailService');
 const { sendPushNotification: sendPushNotificationService } = require('../utils/pushNotificationService');
 
 // @desc    Get admin stats
@@ -832,11 +832,22 @@ const handleSendBulkEmail = async (req, res) => {
 
     if (sendToAll === 'true') {
       users = await User.find({});
-    } else {
-      if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
-        return res.status(400).json({ message: 'Please select at least one user.' });
-      }
+    } else if (userIds && Array.isArray(userIds) && userIds.length > 0) {
       users = await User.find({ '_id': { $in: userIds } });
+    } else if (req.body.recipients) {
+      // Support frontend sending recipients (email addresses) instead of userIds
+      let emails = [];
+      try {
+        emails = Array.isArray(req.body.recipients) ? req.body.recipients : JSON.parse(req.body.recipients);
+      } catch (e) {
+        return res.status(400).json({ message: 'Invalid recipients format' });
+      }
+      users = (emails || []).filter(Boolean).map((email) => ({ email, fname: (email || '').split('@')[0] }));
+      if (users.length === 0) {
+        return res.status(400).json({ message: 'Please provide at least one recipient.' });
+      }
+    } else {
+      return res.status(400).json({ message: 'Please select at least one user or provide recipients.' });
     }
 
     if (users.length === 0) {
@@ -857,6 +868,60 @@ const handleSendBulkEmail = async (req, res) => {
   } catch (error) {
     console.error('Error sending bulk email:', error);
     res.status(500).json({ message: 'Failed to send bulk email.' });
+  }
+};
+
+// @desc    Send admin email (single or multiple recipients)
+// @route   POST /api/admin/send-email
+// @access  Private/Admin
+const sendAdminEmail = async (req, res) => {
+  try {
+    const { to, recipients, subject, message } = req.body;
+    if (!subject || !message) {
+      return res.status(400).json({ message: 'Subject and message are required' });
+    }
+
+    // If recipients list is provided, leverage bulk sender
+    if (recipients && (Array.isArray(recipients) || typeof recipients === 'string')) {
+      let emails = [];
+      try {
+        emails = Array.isArray(recipients) ? recipients : JSON.parse(recipients);
+      } catch (e) {
+        return res.status(400).json({ message: 'Invalid recipients format' });
+      }
+      const users = (emails || []).filter(Boolean).map((email) => ({ email, fname: (email || '').split('@')[0] }));
+      if (users.length === 0) return res.status(400).json({ message: 'No recipients provided' });
+      await sendBulkEmailService(users, subject, message);
+      return res.json({ message: `Email sent to ${users.length} recipients.` });
+    }
+
+    // Otherwise send to a single address
+    if (!to) return res.status(400).json({ message: 'Recipient email is required' });
+
+    const html = `
+      <div style="max-width: 600px; margin: 0 auto; padding: 20px; font-family: Arial, sans-serif; background-color: #f9f9f9;">
+        <div style="background-color: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
+          <div style="text-align: center; margin-bottom: 30px;">
+            <h1 style="color: #075e54; margin: 0;">Quluub</h1>
+            <p style="color: #666; font-size: 16px; margin-top: 10px;">Islamic Marriage Platform</p>
+          </div>
+          <div style="color: #666; line-height: 1.6; margin: 20px 0;">${(message || '').replace(/\n/g, '<br>')}</div>
+          <div style="margin-top: 40px; padding-top: 20px; border-top: 1px solid #eee;">
+            <p style="color: #999; font-size: 12px; text-align: center;">
+              Best regards,<br>
+              The Quluub Team<br>
+              <a href="${process.env.FRONTEND_URL}" style="color: #075e54;">quluub.com</a>
+            </p>
+          </div>
+        </div>
+      </div>`;
+
+    const ok = await sendEmailService({ to, subject, html });
+    if (!ok) return res.status(500).json({ message: 'Failed to send email' });
+    return res.json({ message: 'Email sent successfully' });
+  } catch (error) {
+    console.error('Error sending admin email:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 };
 
@@ -1517,6 +1582,7 @@ module.exports = {
   getPotentialMatches,
   processRefund,
   sendMatchSuggestions,
+  sendAdminEmail,
   sendAdminPushNotification,
   getAdminPushNotifications,
 };
